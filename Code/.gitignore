@@ -1,0 +1,43 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+*.pkl
+
+# Virtual environment
+venv/
+.venv/
+
+# ===== Streamlit =====
+# Streamlit local configs and secrets
+.streamlit/secrets.toml
+.streamlit/config.toml
+
+# ===== VS Code =====
+.vscode/
+*.code-workspace
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+# ===== Logs & Cache =====
+*.log
+logs/
+__cache__/
+.cache/
+*.bak
+
+# ===== Environment / Config =====
+.env
+*.ini
+*.cfg
+*.json
+
+# ===== MySQL Dumps =====
+*.sql
+*.dump
+*.bak
