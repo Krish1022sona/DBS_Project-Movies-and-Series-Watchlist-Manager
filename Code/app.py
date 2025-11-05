@@ -20,16 +20,54 @@ def landing_page():
     st.subheader("Track. Save. Discover")
     st.divider()
 
-    col1, _, col2 = st.columns([1, 2, 1])
-    with col1:
-        login = st.button(label="Login", use_container_width=True, on_click=set_page, args=('Login', ))
-    with col2:
-        register = st.button(label="Register", use_container_width=True)
+    st.sidebar.subheader("Start Tracking Now")
+    login = st.sidebar.button(label="Login", use_container_width=True, on_click=set_page, args=('Login', ))
+    register = st.sidebar.button(label="Register", use_container_width=True)
     
-    if login:
-        st.success("Login Button Clicked")
     if register:
-        st.info("Register Button Clicked")
+        st.info("Register Button To Be Implemented")
+    
+
+    with st.container():
+        col1, col2 = st.columns([3, 2])
+        with col1:
+            st.write("")
+            st.write("")
+            st.write("")
+            st.write("")
+            st.subheader("explore in the vast library of movies, series, and you name it we have it".capitalize())
+
+        with col2:
+            st.image(image="..\\Resources\\vast_library.png", width="stretch")
+
+    with st.container():
+        col1, col2 = st.columns([3, 4])
+        with col2:
+            st.write("")
+            st.write("")
+            st.write("")
+            st.write("")
+            st.subheader("track your interests with custom playlists".capitalize())
+
+        with col1:
+            st.image(image="..\\Resources\\playlist_tracking.png", width="stretch")
+    
+    with st.container():
+        col1, col2 = st.columns([3, 2])
+        with col1:
+            st.write("")
+            st.write("")
+            st.write("")
+            st.write("")
+            st.subheader("make like minded friends and take suggestions".capitalize())
+
+        with col2:
+            st.image(image="..\\Resources\\friends.png", width="stretch")
+    
+    st.divider()
+    ready = st.button(label="Take Me With You", use_container_width=True)
+    if ready:
+        set_page('Login')
 
 
 def login_page():
@@ -67,10 +105,9 @@ def user_page(username):
     st.sidebar.divider()
     st.sidebar.button(label="LOG OUT", on_click=set_page, args=('Landing',))
 
-    st.title(f"Welcome {st.session_state.username}")
 
     if selected == "Home":
-        pass
+        st.title(f"Welcome {st.session_state.username}")
     elif selected == "Watchlist":
         pass
     elif selected == "Series Progress":
