@@ -38,6 +38,6 @@ __cache__/
 *.json
 
 # ===== MySQL Dumps =====
-*.sql
+
 *.dump
 *.bak
