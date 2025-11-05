@@ -11,6 +11,7 @@ if 'username' not in st.session_state:
 
 def set_page(page):
     st.session_state.page = page
+    st.rerun()
 
 
 def landing_page():
