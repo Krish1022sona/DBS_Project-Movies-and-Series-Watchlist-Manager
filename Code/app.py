@@ -1,4 +1,5 @@
 import streamlit as st
+from streamlit_option_menu import option_menu
 
 
 # initialize 
@@ -88,20 +89,26 @@ def login_page():
 def register_page():
     st.title("ready to start your watchlist. let's go".title())
     with st.form("register_form"):
-        mail_id = st.text_input("Email")
         with st.container():
             col1, col2 = st.columns([1,1])
             with col1:
                 first_name = st.text_input("First Name")
             with col2:
                 last_name = st.text_input("Last Name")
-                
+
         with st.container():
             col1, col2 = st.columns([1,1])
             with col1:
                 username = st.text_input("Username")
             with col2:
+                mail_id = st.text_input("Email")
+
+        with st.container():
+            col1, col2 = st.columns([1,1])
+            with col1:
                 password = st.text_input("Password", type="password")
+            with col2:
+                confirm_password = st.text_input("Confirm Password", type="password")
     
         if st.form_submit_button("Register"):
             st.session_state.username = username
@@ -111,9 +118,6 @@ def register_page():
 
 
 def user_page(username):
-    from streamlit_option_menu import option_menu
-    import streamlit as st
-
     with st.sidebar:
         selected = option_menu(
             menu_title="WatchPlan",
