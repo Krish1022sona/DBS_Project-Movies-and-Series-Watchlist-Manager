@@ -11,7 +11,6 @@ if 'username' not in st.session_state:
 
 def set_page(page):
     st.session_state.page = page
-    st.rerun()
 
 
 def landing_page():
@@ -22,11 +21,15 @@ def landing_page():
     st.divider()
 
     st.sidebar.subheader("Start Tracking Now")
-    login = st.sidebar.button(label="Login", use_container_width=True, on_click=set_page, args=('Login', ))
-    register = st.sidebar.button(label="Register", use_container_width=True)
+
+    if st.sidebar.button(label="Login", use_container_width=True):
+        set_page('Login')
+        st.rerun()
     
-    if register:
-        st.info("Register Button To Be Implemented")
+    if st.sidebar.button(label="Register", use_container_width=True):
+        set_page('Register')
+        st.rerun()
+
     
 
     with st.container():
@@ -36,7 +39,7 @@ def landing_page():
             st.write("")
             st.write("")
             st.write("")
-            st.subheader("explore in the vast library of movies, series, and you name it we have it".capitalize())
+            st.subheader("explore in the vast library of movies, series, and you name it we have it".title())
 
         with col2:
             st.image(image="..\\Resources\\vast_library.png", width="stretch")
@@ -48,7 +51,7 @@ def landing_page():
             st.write("")
             st.write("")
             st.write("")
-            st.subheader("track your interests with custom playlists".capitalize())
+            st.subheader("track your interests with custom playlists".title())
 
         with col1:
             st.image(image="..\\Resources\\playlist_tracking.png", width="stretch")
@@ -60,28 +63,50 @@ def landing_page():
             st.write("")
             st.write("")
             st.write("")
-            st.subheader("make like minded friends and take suggestions".capitalize())
+            st.subheader("make like minded friends and take suggestions".title())
 
         with col2:
             st.image(image="..\\Resources\\friends.png", width="stretch")
     
     st.divider()
-    ready = st.button(label="Take Me With You", use_container_width=True)
-    if ready:
+    if st.button(label="Take Me With You", use_container_width=True):
         set_page('Login')
+        st.rerun()
 
 
 def login_page():
-    st.title("Login")
+    st.title("welcome back, wait who were you again?".title())
     with st.form("login_form"):
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
-            
-        submitted = st.form_submit_button("Log In")
     
-    if submitted:
-        st.session_state.username = username
-        set_page('User')
+        if st.form_submit_button("Log In"):
+            st.session_state.username = username
+            set_page('User')
+            st.rerun()
+
+def register_page():
+    st.title("ready to start your watchlist. let's go".title())
+    with st.form("register_form"):
+        mail_id = st.text_input("Email")
+        with st.container():
+            col1, col2 = st.columns([1,1])
+            with col1:
+                first_name = st.text_input("First Name")
+            with col2:
+                last_name = st.text_input("Last Name")
+                
+        with st.container():
+            col1, col2 = st.columns([1,1])
+            with col1:
+                username = st.text_input("Username")
+            with col2:
+                password = st.text_input("Password", type="password")
+    
+        if st.form_submit_button("Register"):
+            st.session_state.username = username
+            set_page('User')
+            st.rerun()
 
 
 
@@ -117,15 +142,19 @@ def user_page(username):
         pass
 
 def admin_page():
-    pass
+    st.title("Aye Aye Admin")
 
 def database_handler_page():
-    pass
+    st.title("Get. Set. Job")
+
+
 
 if st.session_state.page == "Landing":
     landing_page()
 elif st.session_state.page == "Login":
     login_page()
+elif st.session_state.page == "Register":
+    register_page()
 elif st.session_state.page == "User":
     user_page(st.session_state.username)
 elif st.session_state.page == "Admin":
