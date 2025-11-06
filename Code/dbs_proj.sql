@@ -7,7 +7,7 @@ CREATE TABLE Users (
     DOB date not null,
     email VARCHAR(255) NOT NULL UNIQUE,
     CHECK (email REGEXP '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'),
-    password varbinary(64) NOT NULL ,   -- while insertion of data use SHA2('password',256) similar to bcrypt but less secure
+    password char(64) NOT NULL ,   -- while insertion of data use SHA2('password',256) similar to bcrypt but less secure
     role ENUM('user', 'admin', 'moderator' ) DEFAULT 'user',
     created_at datetime DEFAULT CURRENT_TIMESTAMP
 );
@@ -30,7 +30,7 @@ media_type varchar(20),
         'A'     
     ) DEFAULT 'U',
   poster_image_url varchar(2083),
-  average_rating float
+  average_rating DECIMAL(3,1)
 );
 CREATE TABLE genres(
 genre_id varchar(50) PRIMARY KEY,
@@ -43,6 +43,7 @@ CREATE TABLE Episodes(
     episode_number INT,
     title VARCHAR(100),
     air_date DATE,
+    UNIQUE (media_id,season_number,episode_number), -- prevents duplicate episodes
     FOREIGN KEY (media_id) REFERENCES Media(media_id)
     ON DELETE CASCADE ON UPDATE CASCADE
 );
@@ -100,6 +101,7 @@ CREATE TABLE Reviews_Table(
     username varchar(50) NOT NULL,
     media_id varchar(10) NOT NULL,
     review_text TEXT,
+    rating INT CHECK (rating BETWEEN 1 AND 10)
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (username) REFERENCES Users(username)
@@ -152,6 +154,7 @@ CREATE INDEX idx_media_id ON Episodes(media_id);
 CREATE INDEX idx_username ON Watchlists_item(username);
 CREATE INDEX idx_media_genre ON Media_Genres(media_id, genre_id);
 CREATE INDEX idx_user_media ON Series_Progress_Table(username, media_id);
+CREATE INDEX idx_genre_id ON Media_Genres(genre_id);
 
 CREATE TABLE Activity_Log (
     log_id INT AUTO_INCREMENT PRIMARY KEY,
