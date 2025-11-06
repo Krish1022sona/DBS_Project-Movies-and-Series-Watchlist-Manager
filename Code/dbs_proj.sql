@@ -146,3 +146,39 @@ CREATE TABLE Media_Crew (
     FOREIGN KEY (person_id) REFERENCES People(person_id)
     ON DELETE CASCADE ON UPDATE CASCADE
 );
+-- adding indexs for foreign keys
+
+CREATE INDEX idx_media_id ON Episodes(media_id);
+CREATE INDEX idx_username ON Watchlists_item(username);
+CREATE INDEX idx_media_genre ON Media_Genres(media_id, genre_id);
+CREATE INDEX idx_user_media ON Series_Progress_Table(username, media_id);
+
+CREATE TABLE Activity_Log (
+    log_id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50),                -- who changed
+    table_name VARCHAR(50),              -- in which table change made
+    operation ENUM('INSERT', 'UPDATE', 'DELETE'), -- which operation
+    record_id VARCHAR(100),              -- in which record
+    change_details TEXT,                 --  what changed
+    changed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+-- triggers 
+CREATE TRIGGER after_media_insert
+AFTER INSERT ON Media
+FOR EACH ROW
+INSERT INTO Activity_Log (username, table_name, operation, record_id, change_details)
+VALUES (CURRENT_USER(), 'Media', 'INSERT', NEW.media_id, CONCAT('Added media: ', NEW.title));
+
+CREATE TRIGGER after_media_delete
+AFTER DELETE ON Media
+FOR EACH ROW
+INSERT INTO Activity_Log (username, table_name, operation, record_id, change_details)
+VALUES (CURRENT_USER(), 'Media', 'DELETE', OLD.media_id, CONCAT('Deleted media: ', OLD.title));
+
+CREATE TRIGGER after_media_update
+AFTER UPDATE ON Media
+FOR EACH ROW
+INSERT INTO Activity_Log (username, table_name, operation, record_id, change_details)
+VALUES (CURRENT_USER(), 'Media', 'UPDATE', NEW.media_id, CONCAT('Updated media: ', NEW.title));
+
+SELECT * FROM Activity_Log ORDER BY changed_at DESC;
