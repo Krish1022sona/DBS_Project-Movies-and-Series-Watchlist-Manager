@@ -149,6 +149,25 @@ def user_page(username):
 
     if selected == "Home":
         st.title(f"Welcome {st.session_state.username}")
+        st.divider()
+
+        with st.container():
+            col1, col2 = st.columns([2,1])
+            with col1:
+                with st.container(border=True):
+                    st.subheader("take some suggestions from us".title())
+            with col2:
+                with st.container(border=True):
+                    st.subheader("continue your last watched episode".title())
+        
+        with st.container():
+            col1, col2 = st.columns([1,1])
+            with col1:
+                with st.container(border=True):
+                    st.subheader("one of your recent watchlist".title())
+            with col2:
+                with st.container(border=True):
+                    st.subheader("another of your recent watchlist".title())
 
     elif selected == "Explore":
         st.title("Explore")
