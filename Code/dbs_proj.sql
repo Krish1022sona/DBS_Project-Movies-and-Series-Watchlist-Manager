@@ -1,6 +1,6 @@
-CREATE DATABASE p3;
+CREATE DATABASE Streamsync;
 
-use p3;
+use Streamsync ;
 
 CREATE TABLE Users (
     username varchar(50) unique primary key,
