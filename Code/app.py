@@ -149,12 +149,48 @@ def user_page(username):
 
     if selected == "Home":
         st.title(f"Welcome {st.session_state.username}")
+
     elif selected == "Watchlist":
-        pass
+        st.title("Your Watchlist")
     elif selected == "Series Progress":
-        pass
+        st.title("Your Series Progress")
     elif selected == "Friends":
-        pass
+        with st.container():
+            col1, col2 = st.columns([5, 2])
+            with col1:
+                st.title("Friends")
+            with col2:
+                st.write("")
+                if st.button(label="Requests", use_container_width=True):
+                    set_page("Friend Requests")
+                    st.rerun()
+        
+        st.divider()
+        
+        with st.container():
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                with st.container(border=True):
+                    st.subheader("here your friends will comeup, once you have them".title())
+            with col2:
+                with st.container(border=True):
+                    st.subheader("here you can search people and make them your friends".title())
+                
+def friend_requests(username):
+    with st.container():
+        col1, col2 = st.columns([5, 2])
+        with col1:
+            st.title("Friend Requests")
+        with col2:
+            st.write("")
+            if st.button(label="Go Back", use_container_width=True):
+                set_page('User')
+                st.rerun()
+    
+    st.divider()
+    
+    with st.container(border=True):
+        st.subheader("here all your friend requests will show up".title())
 
 
 def admin_page():
@@ -205,6 +241,8 @@ elif st.session_state.page == "Register":
     register_page()
 elif st.session_state.page == "User":
     user_page(st.session_state.username)
+elif st.session_state.page == "Friend Requests":
+    friend_requests(st.session_state.username)
 elif st.session_state.page == "Admin":
     admin_page()
 elif st.session_state.page == "Database Handler":
