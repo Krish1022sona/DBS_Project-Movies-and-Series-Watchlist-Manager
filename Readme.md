@@ -1,4 +1,4 @@
-# Movies-And-Series Manager— Streamlit + MySQL Web App
+# StreamSync
 
 It is a smart, interactive web app built using **Streamlit** and **MySQL** that lets users manage, rate, and explore movies and series — all from a clean and modern interface.
 
