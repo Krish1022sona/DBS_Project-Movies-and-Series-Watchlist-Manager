@@ -52,6 +52,8 @@ def landing_page():
             st.write("")
             st.write("")
             st.write("")
+            st.write("")
+            st.write("")
             st.subheader("track your interests with custom playlists".title())
 
         with col1:
@@ -60,6 +62,9 @@ def landing_page():
     with st.container():
         col1, col2 = st.columns([3, 2])
         with col1:
+            st.write("")
+            st.write("")
+            st.write("")
             st.write("")
             st.write("")
             st.write("")
@@ -74,7 +79,6 @@ def landing_page():
         set_page('Login')
         st.rerun()
 
-
 def login_page():
     st.title("welcome back, wait who were you again?".title())
     with st.form("login_form"):
@@ -83,8 +87,15 @@ def login_page():
     
         if st.form_submit_button("Log In"):
             st.session_state.username = username
-            set_page('User')
-            st.rerun()
+            if username == 'admin':
+                set_page('Admin')
+                st.rerun()
+            elif username == 'dataguy':
+                set_page('Database Handler')
+                st.rerun()
+            else:
+                set_page('User')
+                st.rerun()
 
 def register_page():
     st.title("ready to start your watchlist. let's go".title())
@@ -145,10 +156,43 @@ def user_page(username):
     elif selected == "Friends":
         pass
 
+
 def admin_page():
+    with st.sidebar:
+        selected = option_menu(
+            menu_title="WatchPlan",
+            options=["Home", "Changes", "Database Handlers"],
+            icons=["house", "search", "people"],
+            menu_icon="camera-reels",
+            default_index=0,
+            styles={
+                "container": {"background-color": "#0E1117"},
+                "icon": {"color": "#FF4B4B", "font-size": "20px"},
+                "nav-link-selected": {"background-color": "#262730"},
+            },
+        )
+
+    st.sidebar.divider()
+    st.sidebar.button(label="LOG OUT", on_click=set_page, args=('Landing',))
     st.title("Aye Aye Admin")
 
 def database_handler_page():
+    with st.sidebar:
+        selected = option_menu(
+            menu_title="WatchPlan",
+            options=["Home", "Changes", "Database", "Database Handlers"],
+            icons=["house", "search", "tv", "people"],
+            menu_icon="camera-reels",
+            default_index=0,
+            styles={
+                "container": {"background-color": "#0E1117"},
+                "icon": {"color": "#FF4B4B", "font-size": "20px"},
+                "nav-link-selected": {"background-color": "#262730"},
+            },
+        )
+
+    st.sidebar.divider()
+    st.sidebar.button(label="LOG OUT", on_click=set_page, args=('Landing',))
     st.title("Get. Set. Job")
 
 
@@ -163,5 +207,5 @@ elif st.session_state.page == "User":
     user_page(st.session_state.username)
 elif st.session_state.page == "Admin":
     admin_page()
-elif st.session_state.page == "Databse Handler":
+elif st.session_state.page == "Database Handler":
     database_handler_page()
