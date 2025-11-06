@@ -132,8 +132,8 @@ def user_page(username):
     with st.sidebar:
         selected = option_menu(
             menu_title="WatchPlan",
-            options=["Home", "Watchlist", "Series Progress", "Friends"],
-            icons=["house", "film", "tv", "people"],
+            options=["Home", "Explore", "Watchlist", "Series Progress", "Friends"],
+            icons=["house", "search", "film", "tv", "people"],
             menu_icon="camera-reels",
             default_index=0,
             styles={
@@ -150,6 +150,8 @@ def user_page(username):
     if selected == "Home":
         st.title(f"Welcome {st.session_state.username}")
 
+    elif selected == "Explore":
+        st.title("Explore")
     elif selected == "Watchlist":
         st.title("Your Watchlist")
     elif selected == "Series Progress":
