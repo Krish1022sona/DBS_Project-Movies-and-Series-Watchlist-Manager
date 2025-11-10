@@ -186,7 +186,39 @@ def user_page(username):
             st.subheader("here the output will come".title())
 
     elif selected == "Watchlist":
-        st.title("Your Watchlist")
+        with st.container():
+            col1, col2 = st.columns([5, 2])
+            with col1:
+                st.title("Your Watchlist")
+            with col2:
+                st.write("")
+                if st.button(label="Create New", use_container_width=True):
+                    set_page('Create Watchlist')
+                    st.rerun()
+
+        st.divider()
+
+        with st.container():
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                with st.container(border=True):
+                    st.subheader("Watchlist 1: Your Favorite Movies")
+                    st.write("Dummy content: List of movies in this watchlist.")
+            with col2:
+                with st.container(border=True):
+                    st.subheader("Watchlist 2: Must-Watch Series")
+                    st.write("Dummy content: List of series in this watchlist.")
+
+        with st.container():
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                with st.container(border=True):
+                    st.subheader("Watchlist 3: Action Pack")
+                    st.write("Dummy content: Action movies and shows.")
+            with col2:
+                with st.container(border=True):
+                    st.subheader("Watchlist 4: Comedy Central")
+                    st.write("Dummy content: Funny stuff here.")
     elif selected == "Series Progress":
         st.title("Your Series Progress")
     elif selected == "Friends":
@@ -211,6 +243,26 @@ def user_page(username):
                 with st.container(border=True):
                     st.subheader("here you can search people and make them your friends".title())
                 
+def create_watchlist_page(username):
+    with st.container():
+        col1, col2 = st.columns([5, 2])
+        with col1:
+            st.title("Create New Watchlist")
+        with col2:
+            st.write("")
+            if st.button(label="Go Back", use_container_width=True):
+                set_page('User')
+                st.rerun()
+
+    st.divider()
+
+    with st.form("create_watchlist_form"):
+        watchlist_name = st.text_input("Watchlist Name")
+        if st.form_submit_button("Create"):
+            st.success(f"Watchlist '{watchlist_name}' created successfully!")
+            set_page('User')
+            st.rerun()
+
 def friend_requests(username):
     with st.container():
         col1, col2 = st.columns([5, 2])
@@ -221,9 +273,9 @@ def friend_requests(username):
             if st.button(label="Go Back", use_container_width=True):
                 set_page('User')
                 st.rerun()
-    
+
     st.divider()
-    
+
     with st.container(border=True):
         st.subheader("here all your friend requests will show up".title())
 
@@ -276,6 +328,8 @@ elif st.session_state.page == "Register":
     register_page()
 elif st.session_state.page == "User":
     user_page(st.session_state.username)
+elif st.session_state.page == "Create Watchlist":
+    create_watchlist_page(st.session_state.username)
 elif st.session_state.page == "Friend Requests":
     friend_requests(st.session_state.username)
 elif st.session_state.page == "Admin":
