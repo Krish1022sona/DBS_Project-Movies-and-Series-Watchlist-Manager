@@ -171,6 +171,20 @@ def user_page(username):
 
     elif selected == "Explore":
         st.title("Explore")
+        with st.container():
+            query = st.text_input("type to search".title())
+            options = ["All", "Movies", "Series", "Episodes", "Genre", "Cast & Crew"]
+
+            cols = st.columns([1, 1, 1, 1, 1, 2])
+            selected = []
+            for col, option in zip(cols, options):
+                with col:
+                    if st.checkbox(option, key=option):
+                        selected.append(option)
+        
+        with st.container(border=True):
+            st.subheader("here the output will come".title())
+
     elif selected == "Watchlist":
         st.title("Your Watchlist")
     elif selected == "Series Progress":
