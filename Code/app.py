@@ -40,12 +40,7 @@ if 'username' not in st.session_state:
 if 'selected_table' not in st.session_state:
     st.session_state.selected_table = ""
 if 'handlers' not in st.session_state:
-    st.session_state.handlers = [
-        {"name": "Krishna", "year": 2023, "role": "Senior Handler"},
-        {"name": "Alice", "year": 2022, "role": "Data Analyst"},
-        {"name": "Bob", "year": 2021, "role": "Backup Handler"},
-        {"name": "Charlie", "year": 2020, "role": "Lead Handler"}
-    ]
+    st.session_state.handlers = []
 if 'selected_nav' not in st.session_state:
     st.session_state.selected_nav = "Home"
 if 'user_role' not in st.session_state:
@@ -64,6 +59,10 @@ if 'add_to_watchlist_mode' not in st.session_state:
     st.session_state.add_to_watchlist_mode = False
 if 'add_to_watchlist_id' not in st.session_state:
     st.session_state.add_to_watchlist_id = None
+if 'selected_handler_user' not in st.session_state:
+    st.session_state.selected_handler_user = None
+if 'db_add_user' not in st.session_state:
+    st.session_state.db_add_user = False
 
 def load_db_config():
     """Load database configuration from secrets.toml"""
@@ -117,6 +116,20 @@ def execute_query(query, params=None, fetch=True):
         st.error(f"Query error: {e}")
         return None
 
+def log_activity(table_name, operation, record_id, details, username=None):
+    """Log activity into Activity_Log table"""
+    actor = username or st.session_state.get('username') or 'system'
+    try:
+        return execute_query(
+            """INSERT INTO Activity_Log (username, table_name, operation, record_id, change_details)
+               VALUES (%s, %s, %s, %s, %s)""",
+            (actor, table_name, operation, str(record_id), details),
+            fetch=False
+        )
+    except Exception:
+        # Avoid breaking main flow if logging fails
+        return None
+
 def authenticate_user(username, password):
     """Authenticate user login"""
     hashed = hash_password(password)
@@ -126,12 +139,21 @@ def authenticate_user(username, password):
         return result[0]
     return None
 
-def register_user(username, firstname, lastname, email, password, dob):
+def register_user(username, firstname, lastname, email, password, dob, role='user', created_by=None):
     """Register new user"""
     hashed = hash_password(password)
     query = """INSERT INTO Users (username, firstname, lastname, email, password, DOB, role)
-               VALUES (%s, %s, %s, %s, %s, %s, 'user')"""
-    return execute_query(query, (username, firstname, lastname, email, hashed, dob), fetch=False)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)"""
+    success = execute_query(query, (username, firstname, lastname, email, hashed, dob, role), fetch=False)
+    if success:
+        log_activity(
+            "Users",
+            "INSERT",
+            username,
+            f"User {username} created with role {role}",
+            created_by or username
+        )
+    return success
 
 def get_user_watchlists(username):
     """Get all watchlists for a user"""
@@ -148,35 +170,82 @@ def create_watchlist(username, playlist_name):
     """Create new watchlist"""
     playlist_id = f"PL{datetime.now().strftime('%Y%m%d%H%M%S')}"
     query = "INSERT INTO playlist (playlist_id, username, name) VALUES (%s, %s, %s)"
-    return execute_query(query, (playlist_id, username, playlist_name), fetch=False)
+    success = execute_query(query, (playlist_id, username, playlist_name), fetch=False)
+    if success:
+        log_activity(
+            "playlist",
+            "INSERT",
+            playlist_id,
+            f"Playlist '{playlist_name}' created by {username}",
+            username
+        )
+    return success
 
 def get_watchlist_items(playlist_id):
     """Get items in a watchlist"""
-    query = """SELECT wi.watchlist_item_id, wi.media_id, wi.playlist_id, m.title, m.media_type, m.poster_image_url, m.average_rating
-               FROM Watchlists_item wi
-               JOIN Media m ON wi.media_id = m.media_id
-               WHERE wi.playlist_id = %s"""
+    query = """SELECT pi.playlist_id, pi.media_id, m.title, m.media_type, m.poster_image_url, m.average_rating
+               FROM Playlist_item pi
+               JOIN Media m ON pi.media_id = m.media_id
+               WHERE pi.playlist_id = %s"""
     return execute_query(query, (playlist_id,))
 
-def add_to_watchlist(playlist_id, media_id):
+def add_to_watchlist(playlist_id, media_id, added_by=None):
     """Add media to watchlist"""
-    query = "INSERT INTO Watchlists_item (playlist_id, media_id) VALUES (%s, %s)"
-    return execute_query(query, (playlist_id, media_id), fetch=False)
+    query = """INSERT INTO Playlist_item (playlist_id, media_id)
+               VALUES (%s, %s)
+               ON DUPLICATE KEY UPDATE media_id = VALUES(media_id)"""
+    success = execute_query(query, (playlist_id, media_id), fetch=False)
+    if success:
+        log_activity(
+            "Playlist_item",
+            "INSERT",
+            f"{playlist_id}:{media_id}",
+            f"Added media {media_id} to playlist {playlist_id}",
+            added_by
+        )
+    return success
 
-def remove_from_watchlist(watchlist_item_id):
+def remove_from_watchlist(playlist_id, media_id, removed_by=None):
     """Remove item from watchlist"""
-    query = "DELETE FROM Watchlists_item WHERE watchlist_item_id = %s"
-    return execute_query(query, (watchlist_item_id,), fetch=False)
+    query = "DELETE FROM Playlist_item WHERE playlist_id = %s AND media_id = %s"
+    success = execute_query(query, (playlist_id, media_id), fetch=False)
+    if success:
+        log_activity(
+            "Playlist_item",
+            "DELETE",
+            f"{playlist_id}:{media_id}",
+            f"Removed media {media_id} from playlist {playlist_id}",
+            removed_by
+        )
+    return success
 
-def delete_watchlist(playlist_id):
+def delete_watchlist(playlist_id, deleted_by=None):
     """Delete a watchlist"""
     query = "DELETE FROM playlist WHERE playlist_id = %s"
-    return execute_query(query, (playlist_id,), fetch=False)
+    success = execute_query(query, (playlist_id,), fetch=False)
+    if success:
+        log_activity(
+            "playlist",
+            "DELETE",
+            playlist_id,
+            f"Playlist {playlist_id} deleted",
+            deleted_by
+        )
+    return success
 
-def remove_series_progress(username, media_id):
+def remove_series_progress(username, media_id, removed_by=None):
     """Remove series from progress"""
     query = "DELETE FROM Series_Progress_Table WHERE username = %s AND media_id = %s"
-    return execute_query(query, (username, media_id), fetch=False)
+    success = execute_query(query, (username, media_id), fetch=False)
+    if success:
+        log_activity(
+            "Series_Progress_Table",
+            "DELETE",
+            f"{username}:{media_id}",
+            f"Removed series {media_id} from {username}'s progress",
+            removed_by or username
+        )
+    return success
 
 def get_series_progress(username):
     """Get user's series progress"""
@@ -205,7 +274,6 @@ def search_media(query, filters=None):
                     FROM Media m"""
     conditions = []
     params = []
-    joins = []
     
     if query:
         search_term = f"%{query}%"
@@ -228,9 +296,6 @@ def search_media(query, filters=None):
             type_conditions.append("m.media_type = 'Series'")
         if type_conditions:
             conditions.append("(" + " OR ".join(type_conditions) + ")")
-    
-    if joins:
-        base_query += " " + " ".join(joins)
     
     if conditions:
         base_query += " WHERE " + " AND ".join(conditions)
@@ -363,16 +428,15 @@ def insert_table_record(table_name, data):
     query = f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})"
     return execute_query(query, tuple(data.values()), fetch=False)
 
-def update_table_record(table_name, record_id, updates):
+def update_table_record(table_name, id_column, record_id, updates):
     """Update record in table"""
     set_clause = ", ".join([f"{k} = %s" for k in updates.keys()])
-    query = f"UPDATE {table_name} SET {set_clause} WHERE {table_name}_id = %s"
+    query = f"UPDATE {table_name} SET {set_clause} WHERE {id_column} = %s"
     params = list(updates.values()) + [record_id]
     return execute_query(query, tuple(params), fetch=False)
 
-def delete_table_record(table_name, record_id):
+def delete_table_record(table_name, id_column, record_id):
     """Delete record from table"""
-    id_column = f"{table_name.split('_')[0].lower()}_id" if '_' in table_name else "id"
     query = f"DELETE FROM {table_name} WHERE {id_column} = %s"
     return execute_query(query, (record_id,), fetch=False)
 
@@ -429,7 +493,7 @@ def landing_page():
             if st.button("📝 Register", use_container_width=True):
                 set_page('Register')
                 st.rerun()
-        
+
         st.markdown("---")
         st.markdown("""
         <div style="text-align: center; color: #666; font-size: 0.9rem;">
@@ -601,7 +665,16 @@ def register_page():
                     if st.form_submit_button("✨ Register", use_container_width=True, type="primary"):
                         if username and password and first_name and last_name and mail_id and dob:
                             if password == confirm_password:
-                                result = register_user(username, first_name, last_name, mail_id, password, dob)
+                                result = register_user(
+                                    username,
+                                    first_name,
+                                    last_name,
+                                    mail_id,
+                                    password,
+                                    dob,
+                                    role='user',
+                                    created_by=username
+                                )
                                 if result:
                                     st.session_state.username = username
                                     st.session_state.user_role = "user"
@@ -671,7 +744,7 @@ def user_page(username):
     if selected == "Home":
         st.markdown(f"# 👋 Welcome, {st.session_state.username}!")
         st.markdown("---")
-        
+
         stats = get_user_stats(username)
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -680,7 +753,7 @@ def user_page(username):
             st.metric("📺 Series", stats['series'])
         with col3:
             st.metric("👥 Friends", stats['friends'])
-        
+
         st.markdown("---")
         
         col1, col2 = st.columns([2, 1], gap="large")
@@ -788,7 +861,7 @@ def user_page(username):
                                 st.caption(f"Created: {wl['created_at']} • {wl['item_count']} items")
                             with col2:
                                 if st.button("🗑️", key=f"delete_wl_{i}", help="Delete watchlist"):
-                                    if delete_watchlist(wl['playlist_id']):
+                                    if delete_watchlist(wl['playlist_id'], deleted_by=username):
                                         st.success("Watchlist deleted!")
                                         st.rerun()
                             if st.button("View Details", key=f"watchlist_{i}", use_container_width=True):
@@ -833,7 +906,7 @@ def user_page(username):
                                     st.rerun()
                             with col2:
                                 if st.button("🗑️ Remove", key=f"remove_series_{i}", use_container_width=True):
-                                    if remove_series_progress(username, series['media_id']):
+                                    if remove_series_progress(username, series['media_id'], removed_by=username):
                                         st.success("Removed from progress!")
                                         st.rerun()
             else:
@@ -1041,6 +1114,7 @@ def watchlist_details_page(playlist_id, username):
     with col1:
         if st.button("⬅️ Back to Watchlists", use_container_width=True):
             st.session_state.selected_playlist_id = None
+            st.session_state.add_to_watchlist_mode = False
             st.rerun()
     with col2:
         if st.button("➕ Add Media", use_container_width=True, type="primary"):
@@ -1050,12 +1124,15 @@ def watchlist_details_page(playlist_id, username):
     
     st.markdown("---")
     
-    items = get_watchlist_items(playlist_id)
+    items = get_watchlist_items(playlist_id) or []
     playlist_info = execute_query("SELECT name, created_at FROM playlist WHERE playlist_id = %s", (playlist_id,))
+    playlist_meta = playlist_info[0] if playlist_info else None
     
-    if playlist_info:
-        st.markdown(f"### {playlist_info[0]['name']}")
-        st.caption(f"Created: {playlist_info[0]['created_at']} • {len(items)} items")
+    if playlist_meta:
+        st.markdown(f"### {playlist_meta.get('name') or 'Untitled Playlist'}")
+        st.caption(f"Created: {playlist_meta.get('created_at')} • {len(items)} items")
+    else:
+        st.warning("Playlist not found.")
     
     st.markdown("---")
     
@@ -1070,8 +1147,8 @@ def watchlist_details_page(playlist_id, username):
                     with col1:
                         st.markdown(f"**{media['title']}** ({media['media_type']})")
                     with col2:
-                        if st.button("➕ Add", key=f"add_{media['media_id']}", use_container_width=True):
-                            if add_to_watchlist(playlist_id, media['media_id']):
+                        if st.button("➕ Add", key=f"add_{playlist_id}_{media['media_id']}", use_container_width=True):
+                            if add_to_watchlist(playlist_id, media['media_id'], added_by=st.session_state.get('username')):
                                 st.success(f"Added {media['title']} to watchlist!")
                                 st.session_state.add_to_watchlist_mode = False
                                 st.rerun()
@@ -1092,12 +1169,13 @@ def watchlist_details_page(playlist_id, username):
                         if media.get('description'):
                             st.caption(media['description'][:150] + "...")
                 with col2:
-                    if st.button("View Details", key=f"view_{item.get('watchlist_item_id', item['media_id'])}", use_container_width=True):
+                    if st.button("View Details", key=f"view_{item['playlist_id']}_{item['media_id']}", use_container_width=True):
                         st.session_state.selected_media_id = item['media_id']
+                        st.session_state.update_series_mode = False
                         st.rerun()
                 with col3:
-                    if st.button("🗑️ Remove", key=f"remove_{item.get('watchlist_item_id', item['media_id'])}", use_container_width=True):
-                        if remove_from_watchlist(item.get('watchlist_item_id', item['media_id'])):
+                    if st.button("🗑️ Remove", key=f"remove_{item['playlist_id']}_{item['media_id']}", use_container_width=True):
+                        if remove_from_watchlist(item['playlist_id'], item['media_id'], removed_by=st.session_state.get('username')):
                             st.success("Removed from watchlist!")
                             st.rerun()
     else:
@@ -1259,6 +1337,9 @@ def admin_page():
             set_page('Landing')
             st.rerun()
 
+    if selected != "Database Handlers":
+        st.session_state.selected_handler_user = None
+
     if selected == "Home":
         st.markdown("# 🎛️ Admin Dashboard")
         st.markdown("Welcome to the Admin Dashboard! Monitor system performance and manage key operations.")
@@ -1316,19 +1397,53 @@ def admin_page():
             if st.button("➕ Add Handler", use_container_width=True, type="primary"):
                 set_page('Add Handler')
                 st.rerun()
-        
+
         st.markdown("Manage and view all active database handlers.")
         st.markdown("---")
 
-        handlers = st.session_state.handlers
-        cols = st.columns(2)
-        for i, handler in enumerate(handlers):
-            with cols[i % 2]:
+        handlers = execute_query(
+            "SELECT username, firstname, lastname, email, role, created_at FROM Users WHERE role IN ('moderator', 'admin')",
+            ()
+        ) or []
+
+        if st.session_state.selected_handler_user:
+            profile = get_user_profile(st.session_state.selected_handler_user)
+            if profile:
+                stats = get_user_stats(profile['username'])
                 with st.container(border=True):
-                    st.markdown(f"#### 👤 {handler['name']}")
-                    st.markdown(f"**Status:** 🟢 Active since {handler['year']}")
-                    st.markdown(f"**Role:** {handler['role']}")
-                    st.button("View Details", key=f"handler_{i}", use_container_width=True)
+                    col_a, col_b = st.columns([2, 1], gap="large")
+                    with col_a:
+                        st.markdown(f"### 👤 {profile['firstname']} {profile['lastname']} (@{profile['username']})")
+                        st.markdown(f"**Role:** {profile['role']}")
+                        st.markdown(f"**Email:** {profile['email']}")
+                        if profile.get('DOB'):
+                            st.markdown(f"**DOB:** {profile['DOB']}")
+                        if profile.get('created_at'):
+                            st.caption(f"Joined on {profile['created_at']}")
+                    with col_b:
+                        st.markdown("### 📊 Stats")
+                        st.metric("Watchlists", stats['watchlists'])
+                        st.metric("Series", stats['series'])
+                        st.metric("Friends", stats['friends'])
+                if st.button("⬅️ Back to Handlers", use_container_width=True):
+                    st.session_state.selected_handler_user = None
+                    st.rerun()
+            else:
+                st.warning("Handler not found.")
+                st.session_state.selected_handler_user = None
+        else:
+            if handlers:
+                cols = st.columns(2)
+                for i, handler in enumerate(handlers):
+                    with cols[i % 2]:
+                        with st.container(border=True):
+                            st.markdown(f"#### 👤 {handler['firstname']} {handler['lastname']} (@{handler['username']})")
+                            st.caption(f"Role: {handler['role']} • Member since {handler.get('created_at')}")
+                            if st.button("View Details", key=f"admin_handler_{handler['username']}", use_container_width=True):
+                                st.session_state.selected_handler_user = handler['username']
+                                st.rerun()
+            else:
+                st.info("No database handlers assigned yet.")
 
         st.markdown("---")
         st.info("💡 Handlers ensure data integrity and perform maintenance tasks.")
@@ -1372,6 +1487,9 @@ def database_handler_page():
             st.session_state.db_nav = "Home"
             set_page('Landing')
             st.rerun()
+
+    if selected != "Database Handlers":
+        st.session_state.selected_handler_user = None
 
     if selected == "Home":
         st.markdown("# 🗄️ Database Handler Dashboard")
@@ -1432,9 +1550,16 @@ def database_handler_page():
                     with col1:
                         if st.form_submit_button("✨ Create User", use_container_width=True, type="primary"):
                             if username and password and firstname and lastname and email:
-                                if register_user(username, firstname, lastname, email, password, dob):
-                                    if role != 'user':
-                                        execute_query("UPDATE Users SET role = %s WHERE username = %s", (role, username), fetch=False)
+                                if register_user(
+                                    username,
+                                    firstname,
+                                    lastname,
+                                    email,
+                                    password,
+                                    dob,
+                                    role=role,
+                                    created_by=st.session_state.get('username')
+                                ):
                                     st.success(f"User '{username}' created successfully!")
                                     st.session_state.db_add_user = False
                                     st.rerun()
@@ -1500,15 +1625,49 @@ def database_handler_page():
         st.markdown("Manage and view all active database handlers.")
         st.markdown("---")
 
-        handlers = st.session_state.handlers
-        cols = st.columns(2)
-        for i, handler in enumerate(handlers):
-            with cols[i % 2]:
+        handlers = execute_query(
+            "SELECT username, firstname, lastname, email, role, created_at FROM Users WHERE role IN ('moderator', 'admin')",
+            ()
+        ) or []
+
+        if st.session_state.selected_handler_user:
+            profile = get_user_profile(st.session_state.selected_handler_user)
+            if profile:
+                stats = get_user_stats(profile['username'])
                 with st.container(border=True):
-                    st.markdown(f"#### 👤 {handler['name']}")
-                    st.markdown(f"**Status:** 🟢 Active since {handler['year']}")
-                    st.markdown(f"**Role:** {handler['role']}")
-                    st.button("View Details", key=f"db_handler_{i}", use_container_width=True)
+                    col1, col2 = st.columns([2, 1], gap="large")
+                    with col1:
+                        st.markdown(f"### 👤 {profile['firstname']} {profile['lastname']} (@{profile['username']})")
+                        st.markdown(f"**Role:** {profile['role']}")
+                        st.markdown(f"**Email:** {profile['email']}")
+                        if profile.get('DOB'):
+                            st.markdown(f"**DOB:** {profile['DOB']}")
+                        if profile.get('created_at'):
+                            st.caption(f"Joined on {profile['created_at']}")
+                    with col2:
+                        st.markdown("### 📊 Stats")
+                        st.metric("Watchlists", stats['watchlists'])
+                        st.metric("Series", stats['series'])
+                        st.metric("Friends", stats['friends'])
+                if st.button("⬅️ Back to Handlers", use_container_width=True):
+                    st.session_state.selected_handler_user = None
+                    st.rerun()
+            else:
+                st.warning("Handler not found.")
+                st.session_state.selected_handler_user = None
+        else:
+            if handlers:
+                cols = st.columns(2)
+                for i, handler in enumerate(handlers):
+                    with cols[i % 2]:
+                        with st.container(border=True):
+                            st.markdown(f"#### 👤 {handler['firstname']} {handler['lastname']} (@{handler['username']})")
+                            st.caption(f"Role: {handler['role']} • Member since {handler.get('created_at')}")
+                            if st.button("View Details", key=f"db_handler_{handler['username']}", use_container_width=True):
+                                st.session_state.selected_handler_user = handler['username']
+                                st.rerun()
+            else:
+                st.info("No database handlers assigned yet.")
 
         st.markdown("---")
         st.info("💡 Handlers ensure data integrity and perform maintenance tasks.")
@@ -1529,7 +1688,7 @@ def table_data_page():
 
     st.markdown("---")
 
-    data = get_table_data(table_name)
+    data = get_table_data(table_name) or []
     if data:
         df = pd.DataFrame(data)
         st.dataframe(df, use_container_width=True, hide_index=True)
@@ -1539,72 +1698,162 @@ def table_data_page():
     st.markdown("---")
     
     columns = get_table_columns(table_name)
-    if columns:
-        tab1, tab2 = st.tabs(["➕ Insert New Record", "✏️ Update Existing Record"])
-        
-        with tab1:
-            with st.container(border=True):
-                st.markdown("### ➕ Insert New Record")
-                with st.form(f"insert_{table_name}"):
-                    form_data = {}
-                    for col in columns[:5]:
-                        if col['Field'] not in ['created_at', 'updated_at', 'changed_at']:
-                            form_data[col['Field']] = st.text_input(col['Field'], key=f"insert_{col['Field']}")
-                    
-                    if st.form_submit_button("✨ Insert", use_container_width=True, type="primary"):
-                        filtered_data = {k: v for k, v in form_data.items() if v}
-                        if filtered_data:
-                            if insert_table_record(table_name, filtered_data):
-                                st.success("Record inserted successfully! 🎉")
+    if not columns:
+        st.warning("Unable to load table metadata.")
+        return
+
+    def detect_id_column(cols):
+        primary = next((c['Field'] for c in cols if c.get('Key') == 'PRI'), None)
+        if primary:
+            return primary
+        fallback = next(
+            (
+                c['Field'] for c in cols
+                if c['Field'].lower().endswith('_id') or c['Field'].lower() == 'id'
+            ),
+            None
+        )
+        return fallback or cols[0]['Field']
+
+    id_col = detect_id_column(columns)
+    editable_columns = [
+        col for col in columns
+        if col['Field'] not in ['created_at', 'updated_at', 'changed_at'] and col['Extra'] != 'auto_increment'
+    ]
+
+    tab1, tab2, tab3 = st.tabs(["➕ Insert New Record", "✏️ Update Existing Record", "🗑️ Delete Record"])
+    
+    with tab1:
+        with st.container(border=True):
+            st.markdown("### ➕ Insert New Record")
+            with st.form(f"insert_{table_name}"):
+                form_data = {}
+                for col in editable_columns:
+                    form_data[col['Field']] = st.text_input(col['Field'], key=f"insert_{table_name}_{col['Field']}")
+                
+                if st.form_submit_button("✨ Insert", use_container_width=True, type="primary"):
+                    filtered_data = {k: v for k, v in form_data.items() if v}
+                    if filtered_data:
+                        if insert_table_record(table_name, filtered_data):
+                            record_identifier = filtered_data.get(id_col, 'N/A')
+                            log_activity(
+                                table_name,
+                                "INSERT",
+                                record_identifier,
+                                f"Inserted record into {table_name}: {filtered_data}",
+                                st.session_state.get('username')
+                            )
+                            st.success("Record inserted successfully! 🎉")
+                            st.rerun()
+                        else:
+                            st.error("Failed to insert record")
+                    else:
+                        st.warning("Please fill in at least one field")
+    
+    with tab2:
+        with st.container(border=True):
+            st.markdown("### ✏️ Update Existing Record")
+            if not data:
+                st.info("No data available to update")
+            else:
+                record_options = {}
+                for record in data:
+                    record_id_value = record.get(id_col)
+                    if record_id_value is None:
+                        continue
+                    display_val = str(record_id_value)
+                    if len(display_val) > 60:
+                        display_val = display_val[:60] + "..."
+                    display_key = f"{id_col}: {display_val}"
+                    if display_key not in record_options:
+                        record_options[display_key] = record
+
+                if not record_options:
+                    st.warning("Could not determine records for updating.")
+                else:
+                    selected_label = st.selectbox("Select record to update", list(record_options.keys()), key=f"select_update_{table_name}")
+                    selected_record = record_options[selected_label]
+                    record_id_value = selected_record.get(id_col)
+
+                    with st.form(f"update_{table_name}"):
+                        st.markdown(f"**Updating record with {id_col} = {record_id_value}**")
+                        update_inputs = {}
+                        for col in editable_columns:
+                            if col['Field'] == id_col:
+                                continue
+                            current_val = selected_record.get(col['Field'], '')
+                            if current_val is None:
+                                current_val = ''
+                            update_inputs[col['Field']] = st.text_input(
+                                col['Field'],
+                                value=str(current_val),
+                                key=f"update_{table_name}_{col['Field']}_{record_id_value}"
+                            )
+
+                        if st.form_submit_button("💾 Update Record", use_container_width=True, type="primary"):
+                            changes = {
+                                field: value for field, value in update_inputs.items()
+                                if str(selected_record.get(field, '')) != value and value != ''
+                            }
+                            if changes:
+                                if update_table_record(table_name, id_col, record_id_value, changes):
+                                    log_activity(
+                                        table_name,
+                                        "UPDATE",
+                                        record_id_value,
+                                        f"Updated fields {list(changes.keys())} in {table_name}",
+                                        st.session_state.get('username')
+                                    )
+                                    st.success("Record updated successfully! 🎉")
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to update record")
+                            else:
+                                st.warning("No changes detected. Please modify at least one field.")
+
+    with tab3:
+        with st.container(border=True):
+            st.markdown("### 🗑️ Delete Record")
+            if not data:
+                st.info("No data available to delete")
+            else:
+                delete_options = {}
+                for record in data:
+                    record_id_value = record.get(id_col)
+                    if record_id_value is None:
+                        continue
+                    display_val = str(record_id_value)
+                    if len(display_val) > 60:
+                        display_val = display_val[:60] + "..."
+                    display_key = f"{id_col}: {display_val}"
+                    if display_key not in delete_options:
+                        delete_options[display_key] = record_id_value
+
+                if not delete_options:
+                    st.warning("Could not determine records for deletion.")
+                else:
+                    col_select, col_button = st.columns([3, 1])
+                    with col_select:
+                        selected_delete_label = st.selectbox(
+                            "Select record to delete",
+                            list(delete_options.keys()),
+                            key=f"select_delete_{table_name}"
+                        )
+                    with col_button:
+                        if st.button("🗑️ Delete", use_container_width=True, type="primary"):
+                            record_id_value = delete_options[selected_delete_label]
+                            if delete_table_record(table_name, id_col, record_id_value):
+                                log_activity(
+                                    table_name,
+                                    "DELETE",
+                                    record_id_value,
+                                    f"Deleted record from {table_name}",
+                                    st.session_state.get('username')
+                                )
+                                st.success("Record deleted successfully!")
                                 st.rerun()
                             else:
-                                st.error("Failed to insert record")
-                        else:
-                            st.warning("Please fill in at least one field")
-        
-        with tab2:
-            with st.container(border=True):
-                st.markdown("### ✏️ Update Existing Record")
-                if data:
-                    record_options = {}
-                    id_col = None
-                    for col in columns:
-                        if 'id' in col['Field'].lower() or col['Field'].endswith('_id'):
-                            id_col = col['Field']
-                            break
-                    
-                    if id_col:
-                        for record in data[:20]:
-                            display_val = str(record.get(id_col, ''))
-                            if len(display_val) > 50:
-                                display_val = display_val[:50] + "..."
-                            record_options[f"{id_col}: {display_val}"] = record[id_col]
-                        
-                        selected_record = st.selectbox("Select record to update", list(record_options.keys()))
-                        record_id = record_options[selected_record]
-                        
-                        with st.form(f"update_{table_name}"):
-                            st.markdown(f"**Updating record with {id_col} = {record_id}**")
-                            update_data = {}
-                            for col in columns:
-                                if col['Field'] not in ['created_at', 'updated_at', 'changed_at', id_col]:
-                                    current_val = next((r.get(col['Field'], '') for r in data if r.get(id_col) == record_id), '')
-                                    update_data[col['Field']] = st.text_input(col['Field'], value=str(current_val) if current_val else '', key=f"update_{col['Field']}")
-                            
-                            if st.form_submit_button("💾 Update Record", use_container_width=True, type="primary"):
-                                filtered_data = {k: v for k, v in update_data.items() if v}
-                                if filtered_data:
-                                    if update_table_record(table_name, record_id, filtered_data):
-                                        st.success("Record updated successfully! 🎉")
-                                        st.rerun()
-                                    else:
-                                        st.error("Failed to update record")
-                                else:
-                                    st.warning("Please fill in at least one field to update")
-                    else:
-                        st.warning("Could not find ID column for this table")
-                else:
-                    st.info("No data available to update")
+                                st.error("Failed to delete record")
 
 def add_handler_page():
     st.set_page_config(page_title="Add Handler - WatchPlan", page_icon="➕", layout="centered")
@@ -1624,15 +1873,24 @@ def add_handler_page():
         with st.form("add_handler_form"):
             st.markdown("### Handler Information")
             username = st.text_input("👤 Username", placeholder="Enter username...")
+            promotion_role = st.selectbox("💼 Assign Role", ["moderator", "admin"])
             
-            col1, col2 = st.columns([1, 1])
-            with col1:
+            col_btn1, col_btn2 = st.columns([1, 1])
+            with col_btn1:
                 if st.form_submit_button("✨ Add Handler", use_container_width=True, type="primary"):
                     if username:
                         if user_exists(username):
-                            query = "UPDATE Users SET role = 'moderator' WHERE username = %s"
-                            if execute_query(query, (username,), fetch=False):
+                            query = "UPDATE Users SET role = %s WHERE username = %s"
+                            if execute_query(query, (promotion_role, username), fetch=False):
+                                log_activity(
+                                    "Users",
+                                    "UPDATE",
+                                    username,
+                                    f"Promoted to {promotion_role}",
+                                    st.session_state.get('username')
+                                )
                                 st.success(f"Handler '{username}' added successfully! 🎉")
+                                st.session_state.selected_handler_user = username
                                 set_page('Admin')
                                 st.rerun()
                             else:
@@ -1641,7 +1899,7 @@ def add_handler_page():
                             st.error("User does not exist. Please enter a valid username.")
                     else:
                         st.warning("Please enter a username")
-            with col2:
+            with col_btn2:
                 if st.form_submit_button("❌ Cancel", use_container_width=True):
                     set_page('Admin')
                     st.rerun()
