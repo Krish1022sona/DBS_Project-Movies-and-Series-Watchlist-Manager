@@ -9,7 +9,7 @@ def load_secrets():
     return {
         'host': 'localhost',
         'user': 'root',
-        'password': '',
+        'password': 'Krishnasona',
         'database': 'Streamsync'
     }
 

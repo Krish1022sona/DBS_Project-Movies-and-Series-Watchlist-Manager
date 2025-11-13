@@ -469,12 +469,12 @@ def set_page(page):
 
 
 def landing_page():
-    st.set_page_config(page_title="WatchPlan", page_icon="🎥", layout="wide")
+    st.set_page_config(page_title="StreamSync", page_icon="🎥", layout="wide")
 
     # Header Section
     st.markdown("""
         <div class="header-container">
-            <h1 style="font-size: 3.5rem; margin: 0;">🎥 WatchPlan</h1>
+            <h1 style="font-size: 3.5rem; margin: 0;">🎥 StreamSync</h1>
             <p style="font-size: 1.5rem; margin: 0.5rem 0;">Track. Save. Discover</p>
         </div>
     """, unsafe_allow_html=True)
@@ -577,7 +577,7 @@ def landing_page():
             st.rerun()
 
 def login_page():
-    st.set_page_config(page_title="Login - WatchPlan", page_icon="🔑", layout="centered")
+    st.set_page_config(page_title="Login - StreamSync", page_icon="🔑", layout="centered")
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
@@ -624,7 +624,7 @@ def login_page():
             st.rerun()
 
 def register_page():
-    st.set_page_config(page_title="Register - WatchPlan", page_icon="📝", layout="centered")
+    st.set_page_config(page_title="Register - StreamSync", page_icon="📝", layout="centered")
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
@@ -700,13 +700,13 @@ def register_page():
 
 
 def user_page(username):
-    st.set_page_config(page_title="WatchPlan - User Dashboard", page_icon="🎥", layout="wide")
+    st.set_page_config(page_title="StreamSync - User Dashboard", page_icon="🎥", layout="wide")
     
     # Sidebar Navigation
     with st.sidebar:
         st.markdown("""
             <div style="text-align: center; padding: 1rem;">
-                <h1 style="font-size: 2rem; margin: 0;">🎥 WatchPlan</h1>
+                <h1 style="font-size: 2rem; margin: 0;">🎥 StreamSync</h1>
                 <p style="color: #666; margin: 0.5rem 0;">Welcome, {}</p>
             </div>
         """.format(username), unsafe_allow_html=True)
@@ -1049,7 +1049,7 @@ def media_details_page(media_id, username):
             st.info("No episodes available")
 
 def add_series_page(username):
-    st.set_page_config(page_title="Add Series - WatchPlan", page_icon="📺", layout="wide")
+    st.set_page_config(page_title="Add Series - StreamSync", page_icon="📺", layout="wide")
     
     col1, col2 = st.columns([4, 1], gap="large")
     with col1:
@@ -1229,7 +1229,7 @@ def friend_profile_page(friend_username, current_username):
                     st.caption(f"@{friend['username']}")
 
 def create_watchlist_page(username):
-    st.set_page_config(page_title="Create Watchlist - WatchPlan", page_icon="📋", layout="centered")
+    st.set_page_config(page_title="Create Watchlist - StreamSync", page_icon="📋", layout="centered")
     
     col1, col2 = st.columns([4, 1], gap="large")
     with col1:
@@ -1265,7 +1265,7 @@ def create_watchlist_page(username):
                     st.rerun()
 
 def friend_requests(username):
-    st.set_page_config(page_title="Friend Requests - WatchPlan", page_icon="📬", layout="wide")
+    st.set_page_config(page_title="Friend Requests - StreamSync", page_icon="📬", layout="wide")
     
     col1, col2 = st.columns([4, 1], gap="large")
     with col1:
@@ -1299,7 +1299,7 @@ def friend_requests(username):
 
 
 def admin_page():
-    st.set_page_config(page_title="WatchPlan - Admin Dashboard", page_icon="🎛️", layout="wide")
+    st.set_page_config(page_title="StreamSync - Admin Dashboard", page_icon="🎛️", layout="wide")
     
     # Sidebar Navigation
     with st.sidebar:
@@ -1449,7 +1449,7 @@ def admin_page():
         st.info("💡 Handlers ensure data integrity and perform maintenance tasks.")
 
 def database_handler_page():
-    st.set_page_config(page_title="WatchPlan - Database Handler", page_icon="🗄️", layout="wide")
+    st.set_page_config(page_title="StreamSync - Database Handler", page_icon="🗄️", layout="wide")
     
     # Sidebar Navigation
     with st.sidebar:
@@ -1673,7 +1673,7 @@ def database_handler_page():
         st.info("💡 Handlers ensure data integrity and perform maintenance tasks.")
 
 def table_data_page():
-    st.set_page_config(page_title="Table Data - WatchPlan", page_icon="📊", layout="wide")
+    st.set_page_config(page_title="Table Data - StreamSync", page_icon="📊", layout="wide")
     
     table_name = st.session_state.get('selected_table', 'Users')
     
@@ -1856,7 +1856,7 @@ def table_data_page():
                                 st.error("Failed to delete record")
 
 def add_handler_page():
-    st.set_page_config(page_title="Add Handler - WatchPlan", page_icon="➕", layout="centered")
+    st.set_page_config(page_title="Add Handler - StreamSync", page_icon="➕", layout="centered")
     
     col1, col2 = st.columns([4, 1], gap="large")
     with col1:
