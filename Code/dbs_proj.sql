@@ -204,4 +204,55 @@ FOR EACH ROW
 INSERT INTO Activity_Log (username, table_name, operation, record_id, change_details)
 VALUES (CURRENT_USER(), 'Media', 'UPDATE', NEW.media_id, CONCAT('Updated media: ', NEW.title));
 
+-- review table triggers
+
+DELIMITER $$
+CREATE TRIGGER after_review_insert
+AFTER INSERT ON Reviews_Table
+for each row
+BEGIN
+    UPDATE Media
+    SET average_rating = (
+        SELECT ROUND(AVG(rating), 1)
+        FROM Reviews_Table
+        WHERE media_id = NEW.media_id
+    )
+    WHERE media_id = NEW.media_id;
+END$$
+DELIMITER ;
+
+DELIMITER $$
+CREATE TRIGGER after_review_update
+AFTER UPDATE ON Reviews_Table
+for each row
+BEGIN
+    UPDATE Media
+    SET average_rating = (
+        SELECT ROUND(AVG(rating), 1)
+        FROM Reviews_Table
+        WHERE media_id = NEW.media_id
+    )
+    WHERE media_id = NEW.media_id;
+END$$
+DELIMITER ;
+
+DELIMITER $$
+CREATE TRIGGER after_review_delete
+AFTER DELETE ON Reviews_Table
+for each row
+BEGIN
+    UPDATE Media
+    SET average_rating = (
+        SELECT 
+            case
+                WHEN COUNT(*) = 0 THEN NULL
+                ELSE ROUND(AVG(rating), 1)
+		    end
+        from Reviews_Table
+        WHERE media_id = OLD.media_id
+    )
+    WHERE media_id = OLD.media_id;
+END$$
+DELIMITER ;
+
 SELECT * FROM Activity_Log ORDER BY changed_at DESC;
