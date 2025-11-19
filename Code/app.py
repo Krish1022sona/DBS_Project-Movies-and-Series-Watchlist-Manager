@@ -4,8 +4,8 @@ from mysql.connector import Error
 import hashlib
 from datetime import datetime
 import pandas as pd
-import toml
 import os
+import uuid
 
 st.markdown("""
     <style>
@@ -64,26 +64,20 @@ if 'selected_handler_user' not in st.session_state:
 if 'db_add_user' not in st.session_state:
     st.session_state.db_add_user = False
 
-def load_db_config():
-    """Load database configuration from secrets.toml"""
-    try:
-        secrets_path = os.path.join(os.path.dirname(__file__), '.streamlit', 'secrets.toml')
-        with open(secrets_path, 'r') as f:
-            secrets = toml.load(f)
-        return secrets['db']
-    except Exception:
-        return {'host': 'localhost', 'user': 'root', 'password': '', 'database': 'Streamsync'}
+
 
 def get_db_connection():
     """Get database connection with connection pooling"""
     try:
+        if 'db_password' not in st.session_state:
+            st.error("Database password not set. Please enter it in the landing page.")
+            return None
         if st.session_state.db_conn is None or not st.session_state.db_conn.is_connected():
-            db_config = load_db_config()
             st.session_state.db_conn = mysql.connector.connect(
-                host=db_config['host'],
-                user=db_config['user'],
-                password=db_config['password'],
-                database=db_config['database'],
+                host='localhost',
+                user='root',
+                password=st.session_state.db_password,
+                database='Streamsync',
                 autocommit=False
             )
         return st.session_state.db_conn
@@ -247,6 +241,104 @@ def remove_series_progress(username, media_id, removed_by=None):
         )
     return success
 
+def generate_review_id():
+    """Generate unique review ID that fits within 10 characters"""
+    while True:
+        review_id = ("RV" + uuid.uuid4().hex[:8]).upper()
+        exists = execute_query(
+            "SELECT review_id FROM Reviews_Table WHERE review_id = %s",
+            (review_id,)
+        )
+        if not exists:
+            return review_id
+
+def get_reviews_for_media(media_id):
+    """Fetch all reviews for a media item"""
+    query = """SELECT r.review_id, r.username, u.firstname, u.lastname, r.review_text,
+                      r.rating, r.created_at, r.updated_at
+               FROM Reviews_Table r
+               JOIN Users u ON r.username = u.username
+               WHERE r.media_id = %s
+               ORDER BY r.updated_at DESC, r.created_at DESC"""
+    return execute_query(query, (media_id,))
+
+def get_user_review(username, media_id):
+    """Fetch a specific user's review for a media item"""
+    query = """SELECT review_id, review_text, rating, created_at, updated_at
+               FROM Reviews_Table
+               WHERE username = %s AND media_id = %s
+               LIMIT 1"""
+    result = execute_query(query, (username, media_id))
+    return result[0] if result else None
+
+def save_user_review(username, media_id, rating, review_text):
+    """Create or update a user review"""
+    existing = get_user_review(username, media_id)
+    if existing:
+        review_id = existing['review_id']
+        query = """UPDATE Reviews_Table
+                   SET review_text = %s, rating = %s, updated_at = CURRENT_TIMESTAMP
+                   WHERE review_id = %s"""
+        success = execute_query(query, (review_text, rating, review_id), fetch=False)
+        if success:
+            log_activity(
+                "Reviews_Table",
+                "UPDATE",
+                review_id,
+                f"{username} updated review for {media_id} (rating: {rating})",
+                username
+            )
+        return success
+    else:
+        review_id = generate_review_id()
+        query = """INSERT INTO Reviews_Table (review_id, username, media_id, review_text, rating)
+                   VALUES (%s, %s, %s, %s, %s)"""
+        success = execute_query(query, (review_id, username, media_id, review_text, rating), fetch=False)
+        if success:
+            log_activity(
+                "Reviews_Table",
+                "INSERT",
+                review_id,
+                f"{username} created review for {media_id} (rating: {rating})",
+                username
+            )
+        return success
+
+def delete_review(review_id, requesting_user, remark=None, moderator=False):
+    """Delete a review; moderators can delete any review with a remark"""
+    if moderator:
+        if not remark:
+            return False
+        success = execute_query(
+            "DELETE FROM Reviews_Table WHERE review_id = %s",
+            (review_id,),
+            fetch=False
+        )
+        if success:
+            log_activity(
+                "Reviews_Table",
+                "DELETE",
+                review_id,
+                f"Review removed by moderator {requesting_user}. Remark: {remark}",
+                requesting_user
+            )
+        return success
+    else:
+        success = execute_query(
+            "DELETE FROM Reviews_Table WHERE review_id = %s AND username = %s",
+            (review_id, requesting_user),
+            fetch=False
+        )
+        if success:
+            log_activity(
+                "Reviews_Table",
+                "DELETE",
+                review_id,
+                f"Review removed by {requesting_user}",
+                requesting_user
+            )
+        return success
+
 def get_series_progress(username):
     """Get user's series progress"""
     query = """SELECT sp.media_id, m.title, m.poster_image_url,
@@ -267,41 +359,147 @@ def update_series_progress(username, media_id, episode_id):
                last_watched_episode_id = %s, last_watched_at = CURRENT_TIMESTAMP"""
     return execute_query(query, (username, media_id, episode_id, episode_id), fetch=False)
 
-def search_media(query, filters=None):
-    """Search media by title and cast"""
-    base_query = """SELECT DISTINCT m.media_id, m.title, m.description, m.release_year,
-                    m.media_type, m.age_rating, m.poster_image_url, m.average_rating
-                    FROM Media m"""
-    conditions = []
+def search_media(query=None, filters=None, scopes=None, genres=None, people=None, people_role='Any', page=1, page_size=50, min_rating=None):
+    """
+    Clean search implementation:
+    - With text query: Search in selected scopes (Title/Cast/Crew/Genre) and rank by relevance
+    - Without text query: Apply filters only (genres, people, type) and show all matching media
+    - Always respects filters regardless of query presence
+    """
+    scopes = scopes or ['Title']
     params = []
     
-    if query:
-        search_term = f"%{query}%"
-        # Only search title first, then optionally search cast
-        conditions.append("m.title LIKE %s")
-        params.append(search_term)
-        
-        # Only join cast if we want cast-based search
-        # For now, prioritize title search
-        # joins.append("LEFT JOIN Media_Cast mc ON m.media_id = mc.media_id")
-        # joins.append("LEFT JOIN People p ON mc.person_id = p.person_id")
-        # cast_condition = "(p.name LIKE %s OR mc.character_name LIKE %s)"
-        # params.extend([search_term, search_term])
+    # Clean the query
+    search_text = query.strip() if query else ""
+    has_search_text = bool(search_text)
+    has_filters = bool(filters or genres or people or min_rating)
     
+    # If nothing specified, return top-rated media
+    if not has_search_text and not has_filters:
+        sql = """SELECT media_id, title, description, release_year, media_type, 
+                 age_rating, poster_image_url, average_rating 
+                 FROM Media 
+                 ORDER BY average_rating DESC, title ASC 
+                 LIMIT %s"""
+        return execute_query(sql, (page_size,))
+    
+    # Start building the query
+    where_clauses = []
+    
+    # Media type filter
     if filters:
-        type_conditions = []
-        if "Movies" in filters:
-            type_conditions.append("m.media_type = 'Movie'")
-        if "Series" in filters:
-            type_conditions.append("m.media_type = 'Series'")
-        if type_conditions:
-            conditions.append("(" + " OR ".join(type_conditions) + ")")
+        if 'Movies' in filters and 'Series' not in filters:
+            where_clauses.append("m.media_type = 'Movie'")
+        elif 'Series' in filters and 'Movies' not in filters:
+            where_clauses.append("m.media_type = 'Series'")
     
-    if conditions:
-        base_query += " WHERE " + " AND ".join(conditions)
+    # Genre filter
+    if genres:
+        genre_placeholders = ','.join(['%s'] * len(genres))
+        where_clauses.append(f"""m.media_id IN (
+            SELECT mg.media_id FROM Media_Genres mg 
+            JOIN genres g ON mg.genre_id = g.genre_id 
+            WHERE g.name IN ({genre_placeholders})
+        )""")
+        params.extend(genres)
     
-    base_query += " ORDER BY m.average_rating DESC LIMIT 50"
-    return execute_query(base_query, tuple(params) if params else None)
+    # People filter (actors/crew/directors)
+    if people:
+        people_list = list(people)
+        people_placeholders = ','.join(['%s'] * len(people_list))
+        
+        if people_role == 'Actor':
+            where_clauses.append(f"""m.media_id IN (
+                SELECT mc.media_id FROM Media_Cast mc 
+                JOIN People p ON mc.person_id = p.person_id 
+                WHERE p.name IN ({people_placeholders})
+            )""")
+            params.extend(people_list)
+        elif people_role == 'Crew':
+            where_clauses.append(f"""m.media_id IN (
+                SELECT mcr.media_id FROM Media_Crew mcr 
+                JOIN People p ON mcr.person_id = p.person_id 
+                WHERE p.name IN ({people_placeholders})
+            )""")
+            params.extend(people_list)
+        else:  # Any
+            where_clauses.append(f"""(
+                m.media_id IN (
+                    SELECT mc.media_id FROM Media_Cast mc 
+                    JOIN People p ON mc.person_id = p.person_id 
+                    WHERE p.name IN ({people_placeholders})
+                )
+                OR m.media_id IN (
+                    SELECT mcr.media_id FROM Media_Crew mcr 
+                    JOIN People p ON mcr.person_id = p.person_id 
+                    WHERE p.name IN ({people_placeholders})
+                )
+            )""")
+            params.extend(people_list)
+            params.extend(people_list)
+    
+    # Minimum rating filter
+    if min_rating is not None:
+        where_clauses.append("m.average_rating >= %s")
+        params.append(min_rating)
+    
+    # Text search with relevance scoring
+    if has_search_text:
+        search_conditions = []
+        
+        if 'Title' in scopes:
+            search_conditions.append("m.title LIKE %s")
+            params.append(f"%{search_text}%")
+        
+        if 'Cast' in scopes:
+            search_conditions.append("""m.media_id IN (
+                SELECT mc.media_id FROM Media_Cast mc 
+                JOIN People p ON mc.person_id = p.person_id 
+                WHERE p.name LIKE %s
+            )""")
+            params.append(f"%{search_text}%")
+        
+        if 'Crew' in scopes:
+            search_conditions.append("""m.media_id IN (
+                SELECT mcr.media_id FROM Media_Crew mcr 
+                JOIN People p ON mcr.person_id = p.person_id 
+                WHERE p.name LIKE %s
+            )""")
+            params.append(f"%{search_text}%")
+        
+        if 'Genre' in scopes:
+            search_conditions.append("""m.media_id IN (
+                SELECT mg.media_id FROM Media_Genres mg 
+                JOIN genres g ON mg.genre_id = g.genre_id 
+                WHERE g.name LIKE %s
+            )""")
+            params.append(f"%{search_text}%")
+        
+        if search_conditions:
+            where_clauses.append(f"({' OR '.join(search_conditions)})")
+    
+    # Build final query
+    sql = """SELECT DISTINCT m.media_id, m.title, m.description, m.release_year, 
+             m.media_type, m.age_rating, m.poster_image_url, m.average_rating 
+             FROM Media m"""
+    
+    if where_clauses:
+        sql += " WHERE " + " AND ".join(where_clauses)
+    
+    # Order by: if search text, prefer title matches, then rating; otherwise just rating
+    if has_search_text and 'Title' in scopes:
+        sql += f" ORDER BY m.title LIKE %s DESC, m.average_rating DESC, m.title ASC"
+        params.append(f"%{search_text}%")
+    else:
+        sql += " ORDER BY m.average_rating DESC, m.title ASC"
+    
+    # Pagination
+    offset = (max(1, int(page)) - 1) * int(page_size)
+    sql += " LIMIT %s OFFSET %s"
+    params.append(page_size)
+    params.append(offset)
+    
+    return execute_query(sql, tuple(params) if params else None)
 
 def search_users(query):
     """Search users by username or name"""
@@ -464,6 +662,71 @@ def get_recommendations(username, limit=10):
                LIMIT %s"""
     return execute_query(query, (username, limit))
 
+def get_top_rated_media(limit=5):
+    """Fetch top-rated media items"""
+    query = """SELECT media_id, title, media_type, average_rating
+               FROM Media
+               WHERE average_rating IS NOT NULL
+               ORDER BY average_rating DESC, title ASC
+               LIMIT %s"""
+    return execute_query(query, (limit,))
+
+def get_all_genres():
+    """Fetch list of all genres"""
+    query = "SELECT name FROM genres ORDER BY name"
+    genres = execute_query(query)
+    return [g['name'] for g in genres] if genres else []
+
+
+def get_all_people():
+    """Fetch list of all people names for search filters"""
+    query = "SELECT name FROM People ORDER BY name"
+    people = execute_query(query)
+    return [p['name'] for p in people] if people else []
+
+def get_handler_activity(username, table_limit=5):
+    """Get activity statistics for a database handler"""
+    stats = {
+        'total': 0,
+        'insert': 0,
+        'update': 0,
+        'delete': 0,
+        'tables': [],
+        'last_change': None
+    }
+
+    operation_counts = execute_query(
+        """SELECT operation, COUNT(*) as count
+           FROM Activity_Log
+           WHERE username = %s
+           GROUP BY operation""",
+        (username,)
+    )
+    if operation_counts:
+        for row in operation_counts:
+            stats[row['operation'].lower()] = row['count']
+            stats['total'] += row['count']
+
+    table_counts = execute_query(
+        """SELECT table_name, COUNT(*) as count
+           FROM Activity_Log
+           WHERE username = %s
+           GROUP BY table_name
+           ORDER BY count DESC
+           LIMIT %s""",
+        (username, table_limit)
+    )
+    stats['tables'] = table_counts or []
+
+    last_change = execute_query(
+        "SELECT MAX(changed_at) as last_change FROM Activity_Log WHERE username = %s",
+        (username,)
+    )
+    if last_change and last_change[0]['last_change']:
+        stats['last_change'] = last_change[0]['last_change']
+
+    return stats
+
 def set_page(page):
     st.session_state.page = page
 
@@ -483,7 +746,7 @@ def landing_page():
     with st.sidebar:
         st.markdown("### 🔐 Get Started")
         st.markdown("---")
-        
+
         col1, col2 = st.columns(2)
         with col1:
             if st.button("🔑 Login", use_container_width=True, type="primary"):
@@ -494,6 +757,12 @@ def landing_page():
                 set_page('Register')
                 st.rerun()
 
+        st.markdown("---")
+        st.markdown("### 🔒 Database Setup")
+        db_password = st.text_input("Enter MySQL Password", type="password", placeholder="Required for database access")
+        if db_password:
+            st.session_state.db_password = db_password
+            st.success("Password saved! You can now login.")
         st.markdown("---")
         st.markdown("""
         <div style="text-align: center; color: #666; font-size: 0.9rem;">
@@ -598,19 +867,26 @@ def login_page():
                 with col_btn1:
                     if st.form_submit_button("🚀 Log In", use_container_width=True, type="primary"):
                         if username and password:
-                            user = authenticate_user(username, password)
-                            if user:
-                                st.session_state.username = user['username']
-                                st.session_state.user_role = user['role']
-                                if user['role'] == 'admin':
-                                    set_page('Admin')
-                                elif user['role'] == 'moderator':
-                                    set_page('Database Handler')
-                                else:
-                                    set_page('User')
-                                st.rerun()
+                            # Check DB connection first to provide clearer feedback
+                            conn = get_db_connection()
+                            if not conn:
+                                st.error("Database connection failed. Please enter database password on the Landing page or check MySQL credentials.")
                             else:
-                                st.error("Invalid username or password")
+                                user = authenticate_user(username, password)
+                                if user:
+                                    st.session_state.username = user['username']
+                                    st.session_state.user_role = user['role']
+                                    if user['role'] == 'admin':
+                                        set_page('Admin')
+                                    elif user['role'] == 'moderator':
+                                        set_page('Database Handler')
+                                    else:
+                                        set_page('User')
+                                    st.rerun()
+                                else:
+                                    # No DB error but no matching user -> prompt to correct or register
+                                    st.error("Invalid username or password.")
+                                    st.info("If you don't have an account, click 'Go to Register' below. Otherwise check your username/password and try again.")
                         else:
                             st.warning("Please fill in all fields")
                 
@@ -664,27 +940,42 @@ def register_page():
                 with col_btn1:
                     if st.form_submit_button("✨ Register", use_container_width=True, type="primary"):
                         if username and password and first_name and last_name and mail_id and dob:
-                            if password == confirm_password:
-                                result = register_user(
-                                    username,
-                                    first_name,
-                                    last_name,
-                                    mail_id,
-                                    password,
-                                    dob,
-                                    role='user',
-                                    created_by=username
-                                )
-                                if result:
-                                    st.session_state.username = username
-                                    st.session_state.user_role = "user"
-                                    st.success("Registration successful! 🎉")
-                                    set_page('User')
-                                    st.rerun()
-                                else:
-                                    st.error("Registration failed. Username or email may already exist.")
-                            else:
+                            if password != confirm_password:
                                 st.error("Passwords do not match!")
+                            else:
+                                # Ensure DB connection
+                                conn = get_db_connection()
+                                if not conn:
+                                    st.error("Database connection failed. Please enter database password on the Landing page or check MySQL credentials.")
+                                else:
+                                    # Check username/email uniqueness first to provide clear feedback
+                                    if user_exists(username):
+                                        st.error("Registration failed: username already exists. Please choose another username.")
+                                    else:
+                                        existing_email = execute_query("SELECT email FROM Users WHERE email = %s", (mail_id,))
+                                        if existing_email is None:
+                                            st.error("Database error while checking email. Try again later.")
+                                        elif len(existing_email) > 0:
+                                            st.error("Registration failed: email already in use.")
+                                        else:
+                                            result = register_user(
+                                                username,
+                                                first_name,
+                                                last_name,
+                                                mail_id,
+                                                password,
+                                                dob,
+                                                role='user',
+                                                created_by=username
+                                            )
+                                            if result:
+                                                st.session_state.username = username
+                                                st.session_state.user_role = "user"
+                                                st.success("Registration successful! 🎉")
+                                                set_page('User')
+                                                st.rerun()
+                                            else:
+                                                st.error("Registration failed due to a database error. Check DB connection or logs.")
                         else:
                             st.warning("Please fill in all fields")
                 
@@ -701,6 +992,11 @@ def register_page():
 
 def user_page(username):
     st.set_page_config(page_title="StreamSync - User Dashboard", page_icon="🎥", layout="wide")
+    # If a media item has been selected from anywhere (watchlist, search, etc.),
+    # show its details immediately so "View Details" works from any page.
+    if st.session_state.get('selected_media_id'):
+        media_details_page(st.session_state['selected_media_id'], username)
+        return
     
     # Sidebar Navigation
     with st.sidebar:
@@ -763,7 +1059,8 @@ def user_page(username):
                 recommendations = get_recommendations(username, 5)
                 if recommendations:
                     for rec in recommendations:
-                        st.markdown(f"**{rec['title']}** ({rec['media_type']}) - ⭐ {rec['average_rating']}")
+                        rating_text = f"⭐ {rec['average_rating']}" if rec.get('average_rating') is not None else "⭐ N/A"
+                        st.markdown(f"**{rec['title']}** ({rec['media_type']}) - {rating_text}")
                 else:
                     st.info("No recommendations available")
         with col2:
@@ -777,6 +1074,19 @@ def user_page(username):
                             st.caption(f"S{p['season_number']}E{p['episode_number']}: {p['episode_title']}")
                 else:
                     st.info("No series in progress")
+
+        st.markdown("---")
+        st.markdown("### ⭐ Top Rated on StreamSync")
+        top_rated = get_top_rated_media()
+        if top_rated:
+            cols = st.columns(5)
+            for i, media in enumerate(top_rated):
+                with cols[i % 5]:
+                    with st.container(border=True):
+                        st.markdown(f"**{media['title']}**")
+                        st.caption(f"{media['media_type']} • ⭐ {media['average_rating']}")
+        else:
+            st.info("No ratings yet. Be the first to review!")
 
         st.markdown("---")
         
@@ -802,20 +1112,33 @@ def user_page(username):
             with st.container(border=True):
                 st.markdown("### Search Content")
                 query = st.text_input("🔎 Search", placeholder="Type to search movies, series, and more...", key="explore_search")
-                
+
+                scope_options = ["Title", "Cast", "Crew", "Genre"]
+                search_scopes = st.multiselect("Search in", scope_options, default=["Title"], key="explore_scopes")
+
+                genre_options = get_all_genres()
+                genre_filters = st.multiselect("Filter by Genres", genre_options, key="explore_genres")
+
+                # People filter: actors / directors / crew
+                people_options = get_all_people()
+                people_filters = st.multiselect("People (actor/director)", people_options, key="explore_people")
+                people_role = st.selectbox("People Role", options=["Any", "Actor", "Crew"], index=0, key="explore_people_role")
+
                 st.markdown("#### Filter Options")
-                options = ["All", "Movies", "Series"]
-                cols = st.columns(3)
-                selected_filters = []
-                for col, option in zip(cols, options):
-                    with col:
-                        if st.checkbox(option, key=f"filter_{option}"):
-                            selected_filters.append(option)
+                type_filters = st.multiselect("Media Type", ["Movies", "Series"], key="explore_types")
 
             st.markdown("---")
             
-            if query or selected_filters:
-                results = search_media(query if query else None, selected_filters)
+            # Run search when user typed OR when any filters are selected (including people)
+            if query or genre_filters or type_filters or people_filters:
+                results = search_media(
+                    query=query if query else None,
+                    filters=type_filters,
+                    scopes=search_scopes,
+                    genres=genre_filters,
+                    people=people_filters if people_filters else None,
+                    people_role=people_role
+                )
                 if results:
                     st.markdown(f"### 📊 Search Results ({len(results)} found)")
                     cols = st.columns(3)
@@ -977,6 +1300,7 @@ def media_details_page(media_id, username):
     
     if st.button("⬅️ Back to Explore", use_container_width=True):
         st.session_state.selected_media_id = None
+        st.session_state.update_series_mode = False
         st.rerun()
     
     st.markdown("---")
@@ -995,12 +1319,17 @@ def media_details_page(media_id, username):
     
     with col2:
         st.markdown(f"# {media['title']}")
-        st.markdown(f"**Type:** {media['media_type']} | **Year:** {media['release_year']} | **Rating:** ⭐ {media['average_rating']}")
-        st.markdown(f"**Age Rating:** {media['age_rating']}")
+        avg_rating = media.get('average_rating')
+        rating_display = f"{avg_rating:.1f}" if avg_rating is not None else "N/A"
+        release_year = media.get('release_year') or "Unknown"
+        st.markdown(f"**Type:** {media['media_type']} | **Year:** {release_year} | **Average Rating:** ⭐ {rating_display}")
+        st.markdown(f"**Age Rating:** {media.get('age_rating') or 'Not rated'}")
         
         if media.get('genres'):
             genres_str = ", ".join(media['genres'])
             st.markdown(f"**Genres:** {genres_str}")
+        else:
+            st.markdown("**Genres:** Not specified")
         
         st.markdown("---")
         st.markdown("### Description")
@@ -1035,8 +1364,11 @@ def media_details_page(media_id, username):
             if st.session_state.get('update_series_mode'):
                 st.info("Select an episode to update your progress")
                 for ep in episodes:
-                    if st.button(f"S{ep['season_number']}E{ep['episode_number']}: {ep['title']}", 
-                                key=f"ep_{ep['episode_id']}", use_container_width=True):
+                    if st.button(
+                        f"S{ep['season_number']}E{ep['episode_number']}: {ep['title']}",
+                        key=f"ep_{ep['episode_id']}",
+                        use_container_width=True
+                    ):
                         if update_series_progress(username, media_id, ep['episode_id']):
                             st.success(f"Progress updated to {ep['title']}!")
                             st.session_state.update_series_mode = False
@@ -1047,6 +1379,85 @@ def media_details_page(media_id, username):
                     st.caption(f"Aired: {ep['air_date']}")
         else:
             st.info("No episodes available")
+
+    st.markdown("---")
+    st.markdown("### ⭐ Reviews & Ratings")
+
+    if username:
+        user_review = get_user_review(username, media_id)
+        existing_rating = int(user_review['rating']) if user_review and user_review.get('rating') else 5
+        existing_text = user_review['review_text'] if user_review and user_review.get('review_text') else ""
+
+        with st.container(border=True):
+            st.markdown("#### Your Review")
+            rating_value = st.slider(
+                "Your Rating",
+                min_value=1,
+                max_value=10,
+                value=existing_rating,
+                key=f"user_rating_{media_id}"
+            )
+            review_text = st.text_area(
+                "Your Review (optional)",
+                value=existing_text,
+                key=f"user_review_text_{media_id}"
+            )
+            col_save, col_delete = st.columns(2)
+            with col_save:
+                if st.button("Save Review", key=f"save_review_{media_id}"):
+                    if save_user_review(username, media_id, rating_value, review_text):
+                        st.success("Review saved successfully!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to save review. Please try again.")
+            with col_delete:
+                if user_review and st.button("Delete My Review", key=f"delete_review_{media_id}"):
+                    if delete_review(user_review['review_id'], username):
+                        st.success("Review deleted.")
+                        st.rerun()
+                    else:
+                        st.error("Failed to delete review.")
+    else:
+        st.info("Login to leave a rating and review.")
+
+    reviews = get_reviews_for_media(media_id)
+    st.markdown("#### Community Reviews")
+    if reviews:
+        for review in reviews:
+            with st.container(border=True):
+                reviewer_name = f"{review['firstname']} {review['lastname']}".strip()
+                st.markdown(f"**{reviewer_name}** (@{review['username']}) rated ⭐ {review['rating']}")
+                timestamp = review.get('updated_at') or review.get('created_at')
+                if timestamp:
+                    try:
+                        st.caption(f"Updated on {timestamp.strftime('%Y-%m-%d %H:%M')}")
+                    except AttributeError:
+                        st.caption(f"Updated on {timestamp}")
+                if review.get('review_text'):
+                    st.write(review['review_text'])
+
+                if st.session_state.get('user_role') == 'moderator' and review['username'] != username:
+                    remark = st.text_input(
+                        "Moderator Remark",
+                        placeholder="Required to remove review",
+                        key=f"mod_remark_{review['review_id']}"
+                    )
+                    if st.button("Remove Review", key=f"mod_remove_{review['review_id']}"):
+                        if remark.strip():
+                            if delete_review(
+                                review['review_id'],
+                                st.session_state.get('username'),
+                                remark=remark.strip(),
+                                moderator=True
+                            ):
+                                st.success("Review removed.")
+                                st.rerun()
+                            else:
+                                st.error("Failed to remove review.")
+                        else:
+                            st.warning("Please provide a remark before removing the review.")
+    else:
+        st.info("No reviews yet. Be the first to add one!")
 
 def add_series_page(username):
     st.set_page_config(page_title="Add Series - StreamSync", page_icon="📺", layout="wide")
@@ -1066,22 +1477,26 @@ def add_series_page(username):
         st.markdown("### 🔍 Search for Series")
         query = st.text_input("🔎 Search Series", placeholder="Type to search for series...", key="add_series_search")
         
-        st.markdown("#### Filter Options")
-        options = ["All", "Series", "Genre"]
-        cols = st.columns(3)
-        selected_filters = ["Series"]
-        for col, option in zip(cols, options):
-            with col:
-                if st.checkbox(option, key=f"add_{option}", value=(option == "Series")):
-                    if option not in selected_filters:
-                        selected_filters.append(option)
-                    if option == "All":
-                        selected_filters = ["Series"]
+        genre_options = get_all_genres()
+        genre_selection = st.multiselect("Filter by Genres", genre_options, key="add_series_genres")
 
     st.markdown("---")
     
     if query:
-        results = search_media(query, selected_filters)
+        results = search_media(
+            query=query,
+            filters=["Series"],
+            scopes=["Title", "Cast", "Crew"],
+            genres=genre_selection
+        )
+    elif genre_selection:
+        # When no query but genre filters are present, show matching series
+        results = search_media(
+            query=None,
+            filters=["Series"],
+            scopes=["Title", "Cast", "Crew"],
+            genres=genre_selection
+        )
         if results:
             st.markdown(f"### 📊 Search Results ({len(results)} found)")
             for media in results:
@@ -1140,7 +1555,13 @@ def watchlist_details_page(playlist_id, username):
         st.markdown("### 🔍 Search and Add Media")
         search_query = st.text_input("Search movies or series", key="add_watchlist_search")
         if search_query:
-            results = search_media(search_query)
+            results = search_media(
+                query=search_query,
+                scopes=["Title", "Cast", "Crew"]
+            )
+        elif search_query == "" and True:
+            # If user didn't type but still opened add-to-watchlist, show popular/top results
+            results = search_media(query=None, scopes=["Title"], filters=None)
             if results:
                 for media in results[:5]:
                     col1, col2 = st.columns([3, 1])
@@ -1409,7 +1830,7 @@ def admin_page():
         if st.session_state.selected_handler_user:
             profile = get_user_profile(st.session_state.selected_handler_user)
             if profile:
-                stats = get_user_stats(profile['username'])
+                activity = get_handler_activity(profile['username'])
                 with st.container(border=True):
                     col_a, col_b = st.columns([2, 1], gap="large")
                     with col_a:
@@ -1421,10 +1842,21 @@ def admin_page():
                         if profile.get('created_at'):
                             st.caption(f"Joined on {profile['created_at']}")
                     with col_b:
-                        st.markdown("### 📊 Stats")
-                        st.metric("Watchlists", stats['watchlists'])
-                        st.metric("Series", stats['series'])
-                        st.metric("Friends", stats['friends'])
+                        st.markdown("### ⚙️ Activity")
+                        st.metric("Total Changes", activity['total'])
+                        st.metric("Inserts", activity['insert'])
+                        st.metric("Updates", activity['update'])
+                        st.metric("Deletes", activity['delete'])
+                        if activity['last_change']:
+                            try:
+                                last = activity['last_change'].strftime('%Y-%m-%d %H:%M')
+                            except AttributeError:
+                                last = str(activity['last_change'])
+                            st.caption(f"Last change: {last}")
+                if activity['tables']:
+                    st.markdown("#### Most Active Tables")
+                    for table_row in activity['tables']:
+                        st.write(f"- `{table_row['table_name']}`: {table_row['count']} changes")
                 if st.button("⬅️ Back to Handlers", use_container_width=True):
                     st.session_state.selected_handler_user = None
                     st.rerun()
@@ -1435,10 +1867,12 @@ def admin_page():
             if handlers:
                 cols = st.columns(2)
                 for i, handler in enumerate(handlers):
+                    activity = get_handler_activity(handler['username'])
                     with cols[i % 2]:
                         with st.container(border=True):
                             st.markdown(f"#### 👤 {handler['firstname']} {handler['lastname']} (@{handler['username']})")
                             st.caption(f"Role: {handler['role']} • Member since {handler.get('created_at')}")
+                            st.caption(f"Total changes: {activity['total']}")
                             if st.button("View Details", key=f"admin_handler_{handler['username']}", use_container_width=True):
                                 st.session_state.selected_handler_user = handler['username']
                                 st.rerun()
@@ -1631,24 +2065,34 @@ def database_handler_page():
         ) or []
 
         if st.session_state.selected_handler_user:
-            profile = get_user_profile(st.session_state.selected_handler_user)
+            handler_username = st.session_state.selected_handler_user
+            profile = get_user_profile(handler_username)
             if profile:
-                stats = get_user_stats(profile['username'])
+                activity = get_handler_activity(handler_username)
                 with st.container(border=True):
                     col1, col2 = st.columns([2, 1], gap="large")
                     with col1:
                         st.markdown(f"### 👤 {profile['firstname']} {profile['lastname']} (@{profile['username']})")
                         st.markdown(f"**Role:** {profile['role']}")
                         st.markdown(f"**Email:** {profile['email']}")
-                        if profile.get('DOB'):
-                            st.markdown(f"**DOB:** {profile['DOB']}")
                         if profile.get('created_at'):
                             st.caption(f"Joined on {profile['created_at']}")
                     with col2:
-                        st.markdown("### 📊 Stats")
-                        st.metric("Watchlists", stats['watchlists'])
-                        st.metric("Series", stats['series'])
-                        st.metric("Friends", stats['friends'])
+                        st.markdown("### ⚙️ Activity")
+                        st.metric("Total Changes", activity['total'])
+                        st.metric("Inserts", activity['insert'])
+                        st.metric("Updates", activity['update'])
+                        st.metric("Deletes", activity['delete'])
+                        if activity['last_change']:
+                            try:
+                                last = activity['last_change'].strftime('%Y-%m-%d %H:%M')
+                            except AttributeError:
+                                last = str(activity['last_change'])
+                            st.caption(f"Last change: {last}")
+                if activity['tables']:
+                    st.markdown("#### Most Active Tables")
+                    for table_row in activity['tables']:
+                        st.write(f"- `{table_row['table_name']}`: {table_row['count']} changes")
                 if st.button("⬅️ Back to Handlers", use_container_width=True):
                     st.session_state.selected_handler_user = None
                     st.rerun()
@@ -1659,10 +2103,12 @@ def database_handler_page():
             if handlers:
                 cols = st.columns(2)
                 for i, handler in enumerate(handlers):
+                    activity = get_handler_activity(handler['username'])
                     with cols[i % 2]:
                         with st.container(border=True):
                             st.markdown(f"#### 👤 {handler['firstname']} {handler['lastname']} (@{handler['username']})")
                             st.caption(f"Role: {handler['role']} • Member since {handler.get('created_at')}")
+                            st.caption(f"Total changes: {activity['total']}")
                             if st.button("View Details", key=f"db_handler_{handler['username']}", use_container_width=True):
                                 st.session_state.selected_handler_user = handler['username']
                                 st.rerun()
@@ -1775,7 +2221,7 @@ def table_data_page():
                     selected_record = record_options[selected_label]
                     record_id_value = selected_record.get(id_col)
 
-                    with st.form(f"update_{table_name}"):
+    with st.form(f"update_{table_name}"):
                         st.markdown(f"**Updating record with {id_col} = {record_id_value}**")
                         update_inputs = {}
                         for col in editable_columns:
