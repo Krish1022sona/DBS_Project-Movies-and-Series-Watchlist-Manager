@@ -2325,3 +2325,39 @@ def add_handler_page():
                 if st.form_submit_button("❌ Cancel", width='stretch'):
                     set_page('Admin')
                     st.rerun()
+
+# Main application routing
+page = st.session_state.get('page', 'Landing')
+
+if page == 'Landing':
+    landing_page()
+elif page == 'Login':
+    login_page()
+elif page == 'Register':
+    register_page()
+elif page == 'User':
+    if st.session_state.get('username'):
+        user_page(st.session_state.username)
+    else:
+        set_page('Landing')
+        st.rerun()
+elif page == 'Admin':
+    if st.session_state.get('username') and st.session_state.get('user_role') == 'admin':
+        admin_page()
+    else:
+        set_page('Landing')
+        st.rerun()
+elif page == 'Database Handler':
+    if st.session_state.get('username') and st.session_state.get('user_role') == 'moderator':
+        database_handler_page()
+    else:
+        set_page('Landing')
+        st.rerun()
+elif page == 'Add Handler':
+    if st.session_state.get('username') and st.session_state.get('user_role') == 'admin':
+        add_handler_page()
+    else:
+        set_page('Landing')
+        st.rerun()
+else:
+    landing_page()
