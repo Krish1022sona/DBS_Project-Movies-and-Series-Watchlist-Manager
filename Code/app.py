@@ -749,11 +749,11 @@ def landing_page():
 
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("🔑 Login", use_container_width=True, type="primary"):
+            if st.button("🔑 Login", width='stretch', type="primary"):
                 set_page('Login')
                 st.rerun()
         with col2:
-            if st.button("📝 Register", use_container_width=True):
+            if st.button("📝 Register", width='stretch'):
                 set_page('Register')
                 st.rerun()
 
@@ -789,7 +789,7 @@ def landing_page():
             """, unsafe_allow_html=True)
         with col2:
             try:
-                st.image(image="Resources/vast_library.png", use_container_width=True)
+                st.image(image="Resources/vast_library.png", width='stretch')
             except:
                 st.markdown("![Library](Resources/vast_library.png)")
 
@@ -810,7 +810,7 @@ def landing_page():
             """, unsafe_allow_html=True)
         with col1:
             try:
-                st.image(image="Resources/playlist_tracking.png", use_container_width=True)
+                st.image(image="Resources/playlist_tracking.png", width='stretch')
             except:
                 st.markdown("![Playlist](Resources/playlist_tracking.png)")
     
@@ -831,7 +831,7 @@ def landing_page():
             """, unsafe_allow_html=True)
         with col2:
             try:
-                st.image(image="Resources/friends.png", use_container_width=True)
+                st.image(image="Resources/friends.png", width='stretch')
             except:
                 st.markdown("![Friends](Resources/friends.png)")
     
@@ -841,7 +841,7 @@ def landing_page():
     st.markdown("## 🚀 Ready to Start?")
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if st.button("🎬 Take Me With You", use_container_width=True, type="primary"):
+        if st.button("🎬 Take Me With You", width='stretch', type="primary"):
             set_page('Login')
             st.rerun()
 
@@ -865,7 +865,7 @@ def login_page():
                 
                 col_btn1, col_btn2 = st.columns(2)
                 with col_btn1:
-                    if st.form_submit_button("🚀 Log In", use_container_width=True, type="primary"):
+                    if st.form_submit_button("🚀 Log In", width='stretch', type="primary"):
                         if username and password:
                             # Check DB connection first to provide clearer feedback
                             conn = get_db_connection()
@@ -891,11 +891,11 @@ def login_page():
                             st.warning("Please fill in all fields")
                 
                 with col_btn2:
-                    if st.form_submit_button("⬅️ Back", use_container_width=True):
+                    if st.form_submit_button("⬅️ Back", width='stretch'):
                         set_page('Landing')
                         st.rerun()
         
-        if st.button("📝 Go to Register", use_container_width=True):
+        if st.button("📝 Go to Register", width='stretch'):
             set_page('Register')
             st.rerun()
 
@@ -938,7 +938,7 @@ def register_page():
         
                 col_btn1, col_btn2 = st.columns(2)
                 with col_btn1:
-                    if st.form_submit_button("✨ Register", use_container_width=True, type="primary"):
+                    if st.form_submit_button("✨ Register", width='stretch', type="primary"):
                         if username and password and first_name and last_name and mail_id and dob:
                             if password != confirm_password:
                                 st.error("Passwords do not match!")
@@ -980,11 +980,11 @@ def register_page():
                             st.warning("Please fill in all fields")
                 
                 with col_btn2:
-                    if st.form_submit_button("⬅️ Back", use_container_width=True):
+                    if st.form_submit_button("⬅️ Back", width='stretch'):
                         set_page('Landing')
                         st.rerun()
         
-        if st.button("🔑 Already have an account? Login", use_container_width=True):
+        if st.button("🔑 Already have an account? Login", width='stretch'):
             set_page('Login')
             st.rerun()
 
@@ -1019,10 +1019,20 @@ def user_page(username):
         
         selected = None
         for nav_label, nav_value in nav_options.items():
-            if st.button(nav_label, use_container_width=True, 
+            if st.button(nav_label, width='stretch', 
                         type="primary" if st.session_state.selected_nav == nav_value else "secondary",
                         key=f"nav_{nav_value}"):
+                # Update navigation and clear transient selections when changing pages
+                prev_nav = st.session_state.selected_nav
                 st.session_state.selected_nav = nav_value
+                # Clear selected media unless we're navigating to Explore or Series Progress
+                if nav_value not in ("Explore", "Series Progress"):
+                    st.session_state.selected_media_id = None
+                # Clear other transient selections when switching sections
+                if nav_value != 'Friends':
+                    st.session_state.selected_friend = None
+                if nav_value != 'Watchlist':
+                    st.session_state.selected_playlist_id = None
                 st.rerun()
         
         if st.session_state.selected_nav not in nav_options.values():
@@ -1031,8 +1041,18 @@ def user_page(username):
         selected = st.session_state.selected_nav
         
         st.markdown("---")
-        if st.button("🚪 Log Out", use_container_width=True, type="secondary"):
-            st.session_state.selected_nav = "Home"
+        if st.button("🚪 Log Out", width='stretch', type="secondary"):
+            # Clear session except DB password to preserve connection option
+            keep = st.session_state.get('db_password') if 'db_password' in st.session_state else None
+            keys = list(st.session_state.keys())
+            for k in keys:
+                try:
+                    del st.session_state[k]
+                except Exception:
+                    pass
+            if keep is not None:
+                st.session_state.db_password = keep
+            st.session_state.selected_nav = 'Home'
             set_page('Landing')
             st.rerun()
 
@@ -1149,9 +1169,11 @@ def user_page(username):
                                 st.caption(f"{media['media_type']} • {media['release_year']} • ⭐ {media['average_rating']}")
                                 if media['description']:
                                     st.caption(media['description'][:100] + "...")
-                                if st.button("View Details", key=f"explore_{media['media_id']}", use_container_width=True):
-                                    st.session_state.selected_media_id = media['media_id']
-                                    st.rerun()
+                                if st.button("View Details", key=f"explore_{media['media_id']}", width='stretch'):
+                                                    # remember where user came from so Back works
+                                                    st.session_state.previous_page = st.session_state.get('selected_nav', 'Explore')
+                                                    st.session_state.selected_media_id = media['media_id']
+                                                    st.rerun()
                 else:
                     st.info("No results found")
             else:
@@ -1166,7 +1188,7 @@ def user_page(username):
                 st.markdown("# 📋 Your Watchlists")
             with col2:
                 st.write("")
-                if st.button("➕ Create New", use_container_width=True, type="primary"):
+                if st.button("➕ Create New", width='stretch', type="primary"):
                     set_page('Create Watchlist')
                     st.rerun()
 
@@ -1187,7 +1209,7 @@ def user_page(username):
                                     if delete_watchlist(wl['playlist_id'], deleted_by=username):
                                         st.success("Watchlist deleted!")
                                         st.rerun()
-                            if st.button("View Details", key=f"watchlist_{i}", use_container_width=True):
+                            if st.button("View Details", key=f"watchlist_{i}", width='stretch'):
                                 st.session_state.selected_playlist_id = wl['playlist_id']
                                 st.rerun()
             else:
@@ -1202,7 +1224,7 @@ def user_page(username):
                 st.markdown("# 📺 Your Series Progress")
             with col2:
                 st.write("")
-                if st.button("➕ Add Series", use_container_width=True, type="primary"):
+                if st.button("➕ Add Series", width='stretch', type="primary"):
                     set_page('Add Series')
                     st.rerun()
 
@@ -1223,12 +1245,13 @@ def user_page(username):
                             st.caption(f"Last watched: {series['last_watched_at']}")
                             col1, col2 = st.columns(2)
                             with col1:
-                                if st.button("Update Progress", key=f"series_{i}", use_container_width=True):
+                                if st.button("Update Progress", key=f"series_{i}", width='stretch'):
+                                    st.session_state.previous_page = st.session_state.get('selected_nav', 'Series Progress')
                                     st.session_state.selected_media_id = series['media_id']
                                     st.session_state.update_series_mode = True
                                     st.rerun()
                             with col2:
-                                if st.button("🗑️ Remove", key=f"remove_series_{i}", use_container_width=True):
+                                if st.button("🗑️ Remove", key=f"remove_series_{i}", width='stretch'):
                                     if remove_series_progress(username, series['media_id'], removed_by=username):
                                         st.success("Removed from progress!")
                                         st.rerun()
@@ -1244,7 +1267,7 @@ def user_page(username):
                 st.markdown("# 👥 Friends")
             with col2:
                 st.write("")
-                if st.button("📬 Requests", use_container_width=True, type="primary"):
+                if st.button("📬 Requests", width='stretch', type="primary"):
                     set_page("Friend Requests")
                     st.rerun()
 
@@ -1258,7 +1281,7 @@ def user_page(username):
                     if friends:
                         for friend in friends:
                             if st.button(f"👤 {friend['firstname']} {friend['lastname']} (@{friend['username']})", 
-                                       key=f"friend_{friend['username']}", use_container_width=True):
+                                       key=f"friend_{friend['username']}", width='stretch'):
                                 st.session_state.selected_friend = friend['username']
                                 st.rerun()
                     else:
@@ -1267,7 +1290,7 @@ def user_page(username):
                 with st.container(border=True):
                     st.markdown("### 🔍 Find Friends")
                     search_query = st.text_input("Search users", placeholder="Enter username or name...", key="friend_search")
-                    if st.button("🔍 Search & Send Request", use_container_width=True):
+                    if st.button("🔍 Search & Send Request", width='stretch'):
                         if search_query and search_query != username:
                             if user_exists(search_query):
                                 if send_friend_request(username, search_query):
@@ -1289,7 +1312,7 @@ def user_page(username):
                                 mutual = get_mutual_friends(username, user['username'])
                                 mutual_text = f" ({len(mutual)} mutual)" if mutual else ""
                                 if st.button(f"➕ {user['firstname']} {user['lastname']}{mutual_text}", 
-                                           key=f"suggest_{user['username']}", use_container_width=True):
+                                           key=f"suggest_{user['username']}", width='stretch'):
                                     if send_friend_request(username, user['username']):
                                         st.success(f"Request sent to {user['username']}!")
                                         st.rerun()
@@ -1298,9 +1321,13 @@ def media_details_page(media_id, username):
     """Display detailed media information"""
     st.markdown("# 🎬 Media Details")
     
-    if st.button("⬅️ Back to Explore", use_container_width=True):
+    # Back behavior: return to the previous nav if available, otherwise Explore
+    prev_page = st.session_state.get('previous_page', 'Explore')
+    if st.button("⬅️ Back", width='stretch'):
         st.session_state.selected_media_id = None
         st.session_state.update_series_mode = False
+        # restore selected navigation so user_page shows the correct section
+        st.session_state.selected_nav = prev_page
         st.rerun()
     
     st.markdown("---")
@@ -1313,7 +1340,7 @@ def media_details_page(media_id, username):
     col1, col2 = st.columns([1, 2], gap="large")
     with col1:
         if media.get('poster_image_url'):
-            st.image(media['poster_image_url'], use_container_width=True)
+            st.image(media['poster_image_url'], width='stretch')
         else:
             st.info("No poster available")
     
@@ -1367,7 +1394,7 @@ def media_details_page(media_id, username):
                     if st.button(
                         f"S{ep['season_number']}E{ep['episode_number']}: {ep['title']}",
                         key=f"ep_{ep['episode_id']}",
-                        use_container_width=True
+                        width='stretch'
                     ):
                         if update_series_progress(username, media_id, ep['episode_id']):
                             st.success(f"Progress updated to {ep['title']}!")
@@ -1467,7 +1494,7 @@ def add_series_page(username):
         st.markdown("# ➕ Add Series")
     with col2:
         st.write("")
-        if st.button("⬅️ Go Back", use_container_width=True):
+        if st.button("⬅️ Go Back", width='stretch'):
             set_page('User')
             st.rerun()
 
@@ -1482,17 +1509,10 @@ def add_series_page(username):
 
     st.markdown("---")
     
-    if query:
+    # Unified behavior: if user typed a query OR selected genres, run search
+    if query or genre_selection:
         results = search_media(
-            query=query,
-            filters=["Series"],
-            scopes=["Title", "Cast", "Crew"],
-            genres=genre_selection
-        )
-    elif genre_selection:
-        # When no query but genre filters are present, show matching series
-        results = search_media(
-            query=None,
+            query=query if query else None,
             filters=["Series"],
             scopes=["Title", "Cast", "Crew"],
             genres=genre_selection
@@ -1508,7 +1528,7 @@ def add_series_page(username):
                         if media['description']:
                             st.caption(media['description'][:200] + "...")
                     with col2:
-                        if st.button("Add to Progress", key=f"add_{media['media_id']}", use_container_width=True):
+                        if st.button("Add to Progress", key=f"add_{media['media_id']}", width='stretch'):
                             episodes = get_episodes_for_series(media['media_id'])
                             if episodes:
                                 if update_series_progress(username, media['media_id'], episodes[0]['episode_id']):
@@ -1519,7 +1539,7 @@ def add_series_page(username):
         else:
             st.info("No series found")
     else:
-        st.info("Enter a search query to find series")
+        st.info("Enter a search query or select genres to find series")
 
 def watchlist_details_page(playlist_id, username):
     """Display watchlist details with items"""
@@ -1527,12 +1547,12 @@ def watchlist_details_page(playlist_id, username):
     
     col1, col2 = st.columns([4, 1])
     with col1:
-        if st.button("⬅️ Back to Watchlists", use_container_width=True):
+        if st.button("⬅️ Back to Watchlists", width='stretch'):
             st.session_state.selected_playlist_id = None
             st.session_state.add_to_watchlist_mode = False
             st.rerun()
     with col2:
-        if st.button("➕ Add Media", use_container_width=True, type="primary"):
+        if st.button("➕ Add Media", width='stretch', type="primary"):
             st.session_state.add_to_watchlist_mode = True
             st.session_state.add_to_watchlist_id = playlist_id
             st.rerun()
@@ -1559,7 +1579,7 @@ def watchlist_details_page(playlist_id, username):
                 query=search_query,
                 scopes=["Title", "Cast", "Crew"]
             )
-        elif search_query == "" and True:
+        else:
             # If user didn't type but still opened add-to-watchlist, show popular/top results
             results = search_media(query=None, scopes=["Title"], filters=None)
             if results:
@@ -1568,7 +1588,7 @@ def watchlist_details_page(playlist_id, username):
                     with col1:
                         st.markdown(f"**{media['title']}** ({media['media_type']})")
                     with col2:
-                        if st.button("➕ Add", key=f"add_{playlist_id}_{media['media_id']}", use_container_width=True):
+                        if st.button("➕ Add", key=f"add_{playlist_id}_{media['media_id']}", width='stretch'):
                             if add_to_watchlist(playlist_id, media['media_id'], added_by=st.session_state.get('username')):
                                 st.success(f"Added {media['title']} to watchlist!")
                                 st.session_state.add_to_watchlist_mode = False
@@ -1590,12 +1610,13 @@ def watchlist_details_page(playlist_id, username):
                         if media.get('description'):
                             st.caption(media['description'][:150] + "...")
                 with col2:
-                    if st.button("View Details", key=f"view_{item['playlist_id']}_{item['media_id']}", use_container_width=True):
-                        st.session_state.selected_media_id = item['media_id']
-                        st.session_state.update_series_mode = False
-                        st.rerun()
+                        if st.button("View Details", key=f"view_{item['playlist_id']}_{item['media_id']}", width='stretch'):
+                            st.session_state.previous_page = 'Watchlist'
+                            st.session_state.selected_media_id = item['media_id']
+                            st.session_state.update_series_mode = False
+                            st.rerun()
                 with col3:
-                    if st.button("🗑️ Remove", key=f"remove_{item['playlist_id']}_{item['media_id']}", use_container_width=True):
+                    if st.button("🗑️ Remove", key=f"remove_{item['playlist_id']}_{item['media_id']}", width='stretch'):
                         if remove_from_watchlist(item['playlist_id'], item['media_id'], removed_by=st.session_state.get('username')):
                             st.success("Removed from watchlist!")
                             st.rerun()
@@ -1606,7 +1627,7 @@ def friend_profile_page(friend_username, current_username):
     """Display friend profile in read-only mode"""
     st.markdown("# 👤 Friend Profile")
     
-    if st.button("⬅️ Back to Friends", use_container_width=True):
+    if st.button("⬅️ Back to Friends", width='stretch'):
         st.session_state.selected_friend = None
         st.rerun()
     
@@ -1657,7 +1678,7 @@ def create_watchlist_page(username):
         st.markdown("# ➕ Create New Watchlist")
     with col2:
         st.write("")
-        if st.button("⬅️ Go Back", use_container_width=True):
+        if st.button("⬅️ Go Back", width='stretch'):
             set_page('User')
             st.rerun()
 
@@ -1670,7 +1691,7 @@ def create_watchlist_page(username):
             
             col1, col2 = st.columns(2)
             with col1:
-                if st.form_submit_button("✨ Create Watchlist", use_container_width=True, type="primary"):
+                if st.form_submit_button("✨ Create Watchlist", width='stretch', type="primary"):
                     if watchlist_name:
                         if create_watchlist(username, watchlist_name):
                             st.success(f"Watchlist '{watchlist_name}' created successfully! 🎉")
@@ -1681,7 +1702,7 @@ def create_watchlist_page(username):
                     else:
                         st.warning("Please enter a watchlist name")
             with col2:
-                if st.form_submit_button("❌ Cancel", use_container_width=True):
+                if st.form_submit_button("❌ Cancel", width='stretch'):
                     set_page('User')
                     st.rerun()
 
@@ -1693,7 +1714,7 @@ def friend_requests(username):
         st.markdown("# 📬 Friend Requests")
     with col2:
         st.write("")
-        if st.button("⬅️ Go Back", use_container_width=True):
+        if st.button("⬅️ Go Back", width='stretch'):
             set_page('User')
             st.rerun()
 
@@ -1708,12 +1729,12 @@ def friend_requests(username):
                     st.markdown(f"**{req['firstname']} {req['lastname']}** (@{req['username']})")
                     st.caption(f"Sent: {req['created_at']}")
                 with col2:
-                    if st.button("✅ Accept", key=f"accept_{req['username']}", use_container_width=True):
+                    if st.button("✅ Accept", key=f"accept_{req['username']}", width='stretch'):
                         if accept_friend_request(username, req['username']):
                             st.success("Friend request accepted!")
                             st.rerun()
                 with col3:
-                    if st.button("❌ Decline", key=f"decline_{req['username']}", use_container_width=True):
+                    if st.button("❌ Decline", key=f"decline_{req['username']}", width='stretch'):
                         st.info("Decline functionality can be added")
     else:
         st.info("No pending friend requests")
@@ -1741,7 +1762,7 @@ def admin_page():
         
         selected = None
         for nav_label, nav_value in nav_options.items():
-            if st.button(nav_label, use_container_width=True, 
+            if st.button(nav_label, width='stretch', 
                         type="primary" if st.session_state.get('admin_nav', 'Home') == nav_value else "secondary",
                         key=f"admin_nav_{nav_value}"):
                 st.session_state.admin_nav = nav_value
@@ -1753,8 +1774,18 @@ def admin_page():
         selected = st.session_state.admin_nav
         
         st.markdown("---")
-        if st.button("🚪 Log Out", use_container_width=True, type="secondary"):
-            st.session_state.admin_nav = "Home"
+        if st.button("🚪 Log Out", width='stretch', type="secondary"):
+            # Clear session state except DB password
+            keep = st.session_state.get('db_password') if 'db_password' in st.session_state else None
+            keys = list(st.session_state.keys())
+            for k in keys:
+                try:
+                    del st.session_state[k]
+                except Exception:
+                    pass
+            if keep is not None:
+                st.session_state.db_password = keep
+            st.session_state.admin_nav = 'Home'
             set_page('Landing')
             st.rerun()
 
@@ -1802,7 +1833,7 @@ def admin_page():
         
         if logs:
             df = pd.DataFrame(logs)
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, width='stretch', hide_index=True)
         else:
             st.info("No activity logs available")
 
@@ -1815,7 +1846,7 @@ def admin_page():
             st.markdown("# 👥 Database Handlers")
         with col2:
             st.write("")
-            if st.button("➕ Add Handler", use_container_width=True, type="primary"):
+            if st.button("➕ Add Handler", width='stretch', type="primary"):
                 set_page('Add Handler')
                 st.rerun()
 
@@ -1857,7 +1888,7 @@ def admin_page():
                     st.markdown("#### Most Active Tables")
                     for table_row in activity['tables']:
                         st.write(f"- `{table_row['table_name']}`: {table_row['count']} changes")
-                if st.button("⬅️ Back to Handlers", use_container_width=True):
+                if st.button("⬅️ Back to Handlers", width='stretch'):
                     st.session_state.selected_handler_user = None
                     st.rerun()
             else:
@@ -1873,7 +1904,7 @@ def admin_page():
                             st.markdown(f"#### 👤 {handler['firstname']} {handler['lastname']} (@{handler['username']})")
                             st.caption(f"Role: {handler['role']} • Member since {handler.get('created_at')}")
                             st.caption(f"Total changes: {activity['total']}")
-                            if st.button("View Details", key=f"admin_handler_{handler['username']}", use_container_width=True):
+                            if st.button("View Details", key=f"admin_handler_{handler['username']}", width='stretch'):
                                 st.session_state.selected_handler_user = handler['username']
                                 st.rerun()
             else:
@@ -1905,7 +1936,7 @@ def database_handler_page():
         
         selected = None
         for nav_label, nav_value in nav_options.items():
-            if st.button(nav_label, use_container_width=True, 
+            if st.button(nav_label, width='stretch', 
                         type="primary" if st.session_state.get('db_nav', 'Home') == nav_value else "secondary",
                         key=f"db_nav_{nav_value}"):
                 st.session_state.db_nav = nav_value
@@ -1917,8 +1948,18 @@ def database_handler_page():
         selected = st.session_state.db_nav
         
         st.markdown("---")
-        if st.button("🚪 Log Out", use_container_width=True, type="secondary"):
-            st.session_state.db_nav = "Home"
+        if st.button("🚪 Log Out", width='stretch', type="secondary"):
+            # Clear session state except DB password
+            keep = st.session_state.get('db_password') if 'db_password' in st.session_state else None
+            keys = list(st.session_state.keys())
+            for k in keys:
+                try:
+                    del st.session_state[k]
+                except Exception:
+                    pass
+            if keep is not None:
+                st.session_state.db_password = keep
+            st.session_state.db_nav = 'Home'
             set_page('Landing')
             st.rerun()
 
@@ -1951,15 +1992,15 @@ def database_handler_page():
         st.markdown("### 🚀 Quick Actions")
         col1, col2, col3 = st.columns(3)
         with col1:
-            if st.button("➕ Add New User", use_container_width=True, type="primary"):
+            if st.button("➕ Add New User", width='stretch', type="primary"):
                 st.session_state.db_add_user = True
                 st.rerun()
         with col2:
-            if st.button("🗃️ View Tables", use_container_width=True):
+            if st.button("🗃️ View Tables", width='stretch'):
                 st.session_state.db_nav = "Database"
                 st.rerun()
         with col3:
-            if st.button("🔄 View Changes", use_container_width=True):
+            if st.button("🔄 View Changes", width='stretch'):
                 st.session_state.db_nav = "Changes"
                 st.rerun()
 
@@ -1982,7 +2023,7 @@ def database_handler_page():
                     
                     col1, col2 = st.columns(2)
                     with col1:
-                        if st.form_submit_button("✨ Create User", use_container_width=True, type="primary"):
+                        if st.form_submit_button("✨ Create User", width='stretch', type="primary"):
                             if username and password and firstname and lastname and email:
                                 if register_user(
                                     username,
@@ -2002,7 +2043,7 @@ def database_handler_page():
                             else:
                                 st.warning("Please fill in all required fields")
                     with col2:
-                        if st.form_submit_button("❌ Cancel", use_container_width=True):
+                        if st.form_submit_button("❌ Cancel", width='stretch'):
                             st.session_state.db_add_user = False
                             st.rerun()
 
@@ -2026,7 +2067,7 @@ def database_handler_page():
         
         if logs:
             df = pd.DataFrame(logs)
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, width='stretch', hide_index=True)
         else:
             st.info("No activity logs available")
 
@@ -2046,7 +2087,7 @@ def database_handler_page():
         cols = st.columns(3)
         for i, table in enumerate(tables):
             with cols[i % 3]:
-                if st.button(f"📋 {table}", use_container_width=True, key=f"table_{i}"):
+                if st.button(f"📋 {table}", width='stretch', key=f"table_{i}"):
                     st.session_state.selected_table = table
                     set_page('Table Data')
                     st.rerun()
@@ -2093,7 +2134,7 @@ def database_handler_page():
                     st.markdown("#### Most Active Tables")
                     for table_row in activity['tables']:
                         st.write(f"- `{table_row['table_name']}`: {table_row['count']} changes")
-                if st.button("⬅️ Back to Handlers", use_container_width=True):
+                if st.button("⬅️ Back to Handlers", width='stretch'):
                     st.session_state.selected_handler_user = None
                     st.rerun()
             else:
@@ -2109,7 +2150,7 @@ def database_handler_page():
                             st.markdown(f"#### 👤 {handler['firstname']} {handler['lastname']} (@{handler['username']})")
                             st.caption(f"Role: {handler['role']} • Member since {handler.get('created_at')}")
                             st.caption(f"Total changes: {activity['total']}")
-                            if st.button("View Details", key=f"db_handler_{handler['username']}", use_container_width=True):
+                            if st.button("View Details", key=f"admin_handler_{handler['username']}", width='stretch'):
                                 st.session_state.selected_handler_user = handler['username']
                                 st.rerun()
             else:
@@ -2128,7 +2169,7 @@ def table_data_page():
         st.markdown(f"# 📊 Data in {table_name}")
     with col2:
         st.write("")
-        if st.button("⬅️ Go Back", use_container_width=True):
+        if st.button("⬅️ Go Back", width='stretch'):
             set_page('Database Handler')
             st.rerun()
 
@@ -2137,7 +2178,7 @@ def table_data_page():
     data = get_table_data(table_name) or []
     if data:
         df = pd.DataFrame(data)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width='stretch', hide_index=True)
     else:
         st.info("No data available or table doesn't exist")
 
@@ -2177,7 +2218,7 @@ def table_data_page():
                 for col in editable_columns:
                     form_data[col['Field']] = st.text_input(col['Field'], key=f"insert_{table_name}_{col['Field']}")
                 
-                if st.form_submit_button("✨ Insert", use_container_width=True, type="primary"):
+                if st.form_submit_button("✨ Insert", width='stretch', type="primary"):
                     filtered_data = {k: v for k, v in form_data.items() if v}
                     if filtered_data:
                         if insert_table_record(table_name, filtered_data):
@@ -2221,7 +2262,8 @@ def table_data_page():
                     selected_record = record_options[selected_label]
                     record_id_value = selected_record.get(id_col)
 
-    with st.form(f"update_{table_name}"):
+                    # The update form must be INSIDE the container to render inputs properly
+                    with st.form(f"update_{table_name}"):
                         st.markdown(f"**Updating record with {id_col} = {record_id_value}**")
                         update_inputs = {}
                         for col in editable_columns:
@@ -2236,7 +2278,7 @@ def table_data_page():
                                 key=f"update_{table_name}_{col['Field']}_{record_id_value}"
                             )
 
-                        if st.form_submit_button("💾 Update Record", use_container_width=True, type="primary"):
+                        if st.form_submit_button("💾 Update Record", width='stretch', type="primary"):
                             changes = {
                                 field: value for field, value in update_inputs.items()
                                 if str(selected_record.get(field, '')) != value and value != ''
@@ -2286,7 +2328,7 @@ def table_data_page():
                             key=f"select_delete_{table_name}"
                         )
                     with col_button:
-                        if st.button("🗑️ Delete", use_container_width=True, type="primary"):
+                        if st.button("🗑️ Delete", width='stretch', type="primary"):
                             record_id_value = delete_options[selected_delete_label]
                             if delete_table_record(table_name, id_col, record_id_value):
                                 log_activity(
@@ -2309,7 +2351,7 @@ def add_handler_page():
         st.markdown("# ➕ Add New Handler")
     with col2:
         st.write("")
-        if st.button("⬅️ Go Back", use_container_width=True):
+        if st.button("⬅️ Go Back", width='stretch'):
             set_page('Admin')
             st.rerun()
 
@@ -2323,7 +2365,7 @@ def add_handler_page():
             
             col_btn1, col_btn2 = st.columns([1, 1])
             with col_btn1:
-                if st.form_submit_button("✨ Add Handler", use_container_width=True, type="primary"):
+                if st.form_submit_button("✨ Add Handler", width='stretch', type="primary"):
                     if username:
                         if user_exists(username):
                             query = "UPDATE Users SET role = %s WHERE username = %s"
@@ -2346,31 +2388,6 @@ def add_handler_page():
                     else:
                         st.warning("Please enter a username")
             with col_btn2:
-                if st.form_submit_button("❌ Cancel", use_container_width=True):
+                if st.form_submit_button("❌ Cancel", width='stretch'):
                     set_page('Admin')
                     st.rerun()
-
-
-
-if st.session_state.page == "Landing":
-    landing_page()
-elif st.session_state.page == "Login":
-    login_page()
-elif st.session_state.page == "Register":
-    register_page()
-elif st.session_state.page == "User":
-    user_page(st.session_state.username)
-elif st.session_state.page == "Create Watchlist":
-    create_watchlist_page(st.session_state.username)
-elif st.session_state.page == "Friend Requests":
-    friend_requests(st.session_state.username)
-elif st.session_state.page == "Admin":
-    admin_page()
-elif st.session_state.page == "Database Handler":
-    database_handler_page()
-elif st.session_state.page == "Add Series":
-    add_series_page(st.session_state.username)
-elif st.session_state.page == "Table Data":
-    table_data_page()
-elif st.session_state.page == "Add Handler":
-    add_handler_page()
