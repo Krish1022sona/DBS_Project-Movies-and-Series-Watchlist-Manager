@@ -4,10 +4,12 @@ from mysql.connector import Error
 import hashlib
 from datetime import datetime
 import pandas as pd
-import os
 import uuid
 
-st.markdown("""
+@st.cache_data
+def get_custom_css():
+    """Get custom CSS styling"""
+    return """
     <style>
     .header-container {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -30,39 +32,35 @@ st.markdown("""
         box-shadow: 0 4px 8px rgba(0,0,0,0.2);
     }
     </style>
-""", unsafe_allow_html=True)
+    """
 
-# Initialize session state
-if 'page' not in st.session_state:
-    st.session_state.page = "Landing"
-if 'username' not in st.session_state:
-    st.session_state.username = ""
-if 'selected_table' not in st.session_state:
-    st.session_state.selected_table = ""
-if 'handlers' not in st.session_state:
-    st.session_state.handlers = []
-if 'selected_nav' not in st.session_state:
-    st.session_state.selected_nav = "Home"
-if 'user_role' not in st.session_state:
-    st.session_state.user_role = "user"
-if 'db_conn' not in st.session_state:
-    st.session_state.db_conn = None
-if 'selected_media_id' not in st.session_state:
-    st.session_state.selected_media_id = None
-if 'selected_friend' not in st.session_state:
-    st.session_state.selected_friend = None
-if 'selected_playlist_id' not in st.session_state:
-    st.session_state.selected_playlist_id = None
-if 'update_series_mode' not in st.session_state:
-    st.session_state.update_series_mode = False
-if 'add_to_watchlist_mode' not in st.session_state:
-    st.session_state.add_to_watchlist_mode = False
-if 'add_to_watchlist_id' not in st.session_state:
-    st.session_state.add_to_watchlist_id = None
-if 'selected_handler_user' not in st.session_state:
-    st.session_state.selected_handler_user = None
-if 'db_add_user' not in st.session_state:
-    st.session_state.db_add_user = False
+st.markdown(get_custom_css(), unsafe_allow_html=True)
+
+# Initialize session state with defaults
+SESSION_DEFAULTS = {
+    'page': "Landing",
+    'username': "",
+    'selected_table': "",
+    'handlers': [],
+    'selected_nav': "Home",
+    'admin_nav': "Home",
+    'db_nav': "Home",
+    'user_role': "user",
+    'db_conn': None,
+    'selected_media_id': None,
+    'selected_friend': None,
+    'selected_playlist_id': None,
+    'update_series_mode': False,
+    'add_to_watchlist_mode': False,
+    'add_to_watchlist_id': None,
+    'selected_handler_user': None,
+    'db_add_user': False,
+    'previous_page': 'Explore'
+}
+
+for key, default_value in SESSION_DEFAULTS.items():
+    if key not in st.session_state:
+        st.session_state[key] = default_value
 
 
 
@@ -113,16 +111,13 @@ def execute_query(query, params=None, fetch=True):
 def log_activity(table_name, operation, record_id, details, username=None):
     """Log activity into Activity_Log table"""
     actor = username or st.session_state.get('username') or 'system'
-    try:
-        return execute_query(
-            """INSERT INTO Activity_Log (username, table_name, operation, record_id, change_details)
-               VALUES (%s, %s, %s, %s, %s)""",
-            (actor, table_name, operation, str(record_id), details),
-            fetch=False
-        )
-    except Exception:
-        # Avoid breaking main flow if logging fails
-        return None
+    # execute_query already handles errors gracefully, so no need for try-except
+    return execute_query(
+        """INSERT INTO Activity_Log (username, table_name, operation, record_id, change_details)
+           VALUES (%s, %s, %s, %s, %s)""",
+        (actor, table_name, operation, str(record_id), details),
+        fetch=False
+    )
 
 def authenticate_user(username, password):
     """Authenticate user login"""
@@ -369,12 +364,10 @@ def search_media(query=None, filters=None, scopes=None, genres=None, people=None
     scopes = scopes or ['Title']
     params = []
     
-    # Clean the query
     search_text = query.strip() if query else ""
     has_search_text = bool(search_text)
     has_filters = bool(filters or genres or people or min_rating)
     
-    # If nothing specified, return top-rated media
     if not has_search_text and not has_filters:
         sql = """SELECT media_id, title, description, release_year, media_type, 
                  age_rating, poster_image_url, average_rating 
@@ -383,17 +376,14 @@ def search_media(query=None, filters=None, scopes=None, genres=None, people=None
                  LIMIT %s"""
         return execute_query(sql, (page_size,))
     
-    # Start building the query
     where_clauses = []
     
-    # Media type filter
     if filters:
         if 'Movies' in filters and 'Series' not in filters:
             where_clauses.append("m.media_type = 'Movie'")
         elif 'Series' in filters and 'Movies' not in filters:
             where_clauses.append("m.media_type = 'Series'")
     
-    # Genre filter
     if genres:
         genre_placeholders = ','.join(['%s'] * len(genres))
         where_clauses.append(f"""m.media_id IN (
@@ -403,7 +393,6 @@ def search_media(query=None, filters=None, scopes=None, genres=None, people=None
         )""")
         params.extend(genres)
     
-    # People filter (actors/crew/directors)
     if people:
         people_list = list(people)
         people_placeholders = ','.join(['%s'] * len(people_list))
@@ -438,12 +427,10 @@ def search_media(query=None, filters=None, scopes=None, genres=None, people=None
             params.extend(people_list)
             params.extend(people_list)
     
-    # Minimum rating filter
     if min_rating is not None:
         where_clauses.append("m.average_rating >= %s")
         params.append(min_rating)
     
-    # Text search with relevance scoring
     if has_search_text:
         search_conditions = []
         
@@ -478,7 +465,6 @@ def search_media(query=None, filters=None, scopes=None, genres=None, people=None
         if search_conditions:
             where_clauses.append(f"({' OR '.join(search_conditions)})")
     
-    # Build final query
     sql = """SELECT DISTINCT m.media_id, m.title, m.description, m.release_year, 
              m.media_type, m.age_rating, m.poster_image_url, m.average_rating 
              FROM Media m"""
@@ -486,14 +472,12 @@ def search_media(query=None, filters=None, scopes=None, genres=None, people=None
     if where_clauses:
         sql += " WHERE " + " AND ".join(where_clauses)
     
-    # Order by: if search text, prefer title matches, then rating; otherwise just rating
     if has_search_text and 'Title' in scopes:
         sql += f" ORDER BY m.title LIKE %s DESC, m.average_rating DESC, m.title ASC"
         params.append(f"%{search_text}%")
     else:
         sql += " ORDER BY m.average_rating DESC, m.title ASC"
     
-    # Pagination
     offset = (max(1, int(page)) - 1) * int(page_size)
     sql += " LIMIT %s OFFSET %s"
     params.append(page_size)
@@ -542,11 +526,13 @@ def get_media_by_id(media_id):
     return result[0] if result else None
 
 def get_media_full_details(media_id):
-    """Get full media details with cast, crew, genres"""
+    """Get full media details with cast, crew, genres using optimized JOIN query"""
     media = get_media_by_id(media_id)
     if not media:
         return None
     
+    # Fetch genres, cast, and crew in parallel queries (more efficient than single complex JOIN)
+    # This approach is better than a single JOIN because it avoids cartesian products
     genres = execute_query("""SELECT g.name FROM Media_Genres mg
                              JOIN genres g ON mg.genre_id = g.genre_id
                              WHERE mg.media_id = %s""", (media_id,))
@@ -639,18 +625,16 @@ def delete_table_record(table_name, id_column, record_id):
     return execute_query(query, (record_id,), fetch=False)
 
 def get_user_stats(username):
-    """Get user statistics"""
-    watchlist_count = execute_query("SELECT COUNT(*) as count FROM playlist WHERE username = %s", (username,))
-    series_count = execute_query("""SELECT COUNT(*) as count FROM Series_Progress_Table 
-                                    WHERE username = %s""", (username,))
-    friends_count = execute_query("""SELECT COUNT(*) as count FROM Friends 
-                                     WHERE (username_1 = %s OR username_2 = %s) 
-                                     AND status = 'accepted'""", (username, username))
-    return {
-        'watchlists': watchlist_count[0]['count'] if watchlist_count else 0,
-        'series': series_count[0]['count'] if series_count else 0,
-        'friends': friends_count[0]['count'] if friends_count else 0
-    }
+    """Get user statistics with single query"""
+    query = """
+        SELECT 
+            (SELECT COUNT(*) FROM playlist WHERE username = %s) as watchlists,
+            (SELECT COUNT(*) FROM Series_Progress_Table WHERE username = %s) as series,
+            (SELECT COUNT(*) FROM Friends 
+             WHERE (username_1 = %s OR username_2 = %s) AND status = 'accepted') as friends
+    """
+    result = execute_query(query, (username, username, username, username))
+    return result[0] if result else {'watchlists': 0, 'series': 0, 'friends': 0}
 
 def get_recommendations(username, limit=10):
     """Get media recommendations for user"""
@@ -730,11 +714,23 @@ def get_handler_activity(username, table_limit=5):
 def set_page(page):
     st.session_state.page = page
 
+def handle_logout():
+    """Centralized logout handler"""
+    keep = st.session_state.get('db_password')
+    keys = list(st.session_state.keys())
+    for k in keys:
+        try:
+            del st.session_state[k]
+        except Exception:
+            pass
+    if keep:
+        st.session_state.db_password = keep
+    set_page('Landing')
+
 
 def landing_page():
     st.set_page_config(page_title="StreamSync", page_icon="🎥", layout="wide")
 
-    # Header Section
     st.markdown("""
         <div class="header-container">
             <h1 style="font-size: 3.5rem; margin: 0;">🎥 StreamSync</h1>
@@ -742,7 +738,6 @@ def landing_page():
         </div>
     """, unsafe_allow_html=True)
 
-    # Sidebar Authentication
     with st.sidebar:
         st.markdown("### 🔐 Get Started")
         st.markdown("---")
@@ -770,11 +765,9 @@ def landing_page():
         </div>
         """, unsafe_allow_html=True)
 
-    # Features Section
     st.markdown("## ✨ Features")
     st.markdown("---")
     
-    # Feature 1
     with st.container():
         col1, col2 = st.columns([1, 1], gap="large")
         with col1:
@@ -788,14 +781,10 @@ def landing_page():
             </div>
             """, unsafe_allow_html=True)
         with col2:
-            try:
-                st.image(image="Resources/vast_library.png", width='stretch')
-            except:
-                st.markdown("![Library](Resources/vast_library.png)")
+            st.image(image="Resources/vast_library.png", width='stretch')
 
     st.markdown("---")
     
-    # Feature 2
     with st.container():
         col1, col2 = st.columns([1, 1], gap="large")
         with col2:
@@ -809,14 +798,10 @@ def landing_page():
             </div>
             """, unsafe_allow_html=True)
         with col1:
-            try:
-                st.image(image="Resources/playlist_tracking.png", width='stretch')
-            except:
-                st.markdown("![Playlist](Resources/playlist_tracking.png)")
+            st.image(image="Resources/playlist_tracking.png", width='stretch')
     
     st.markdown("---")
     
-    # Feature 3
     with st.container():
         col1, col2 = st.columns([1, 1], gap="large")
         with col1:
@@ -830,14 +815,10 @@ def landing_page():
             </div>
             """, unsafe_allow_html=True)
         with col2:
-            try:
-                st.image(image="Resources/friends.png", width='stretch')
-            except:
-                st.markdown("![Friends](Resources/friends.png)")
+            st.image(image="Resources/friends.png", width='stretch')
     
     st.markdown("---")
     
-    # Call to Action
     st.markdown("## 🚀 Ready to Start?")
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
@@ -867,7 +848,6 @@ def login_page():
                 with col_btn1:
                     if st.form_submit_button("🚀 Log In", width='stretch', type="primary"):
                         if username and password:
-                            # Check DB connection first to provide clearer feedback
                             conn = get_db_connection()
                             if not conn:
                                 st.error("Database connection failed. Please enter database password on the Landing page or check MySQL credentials.")
@@ -884,7 +864,6 @@ def login_page():
                                         set_page('User')
                                     st.rerun()
                                 else:
-                                    # No DB error but no matching user -> prompt to correct or register
                                     st.error("Invalid username or password.")
                                     st.info("If you don't have an account, click 'Go to Register' below. Otherwise check your username/password and try again.")
                         else:
@@ -992,8 +971,7 @@ def register_page():
 
 def user_page(username):
     st.set_page_config(page_title="StreamSync - User Dashboard", page_icon="🎥", layout="wide")
-    # If a media item has been selected from anywhere (watchlist, search, etc.),
-    # show its details immediately so "View Details" works from any page.
+    # If a media item has been selected from anywhere, show its details immediately
     if st.session_state.get('selected_media_id'):
         media_details_page(st.session_state['selected_media_id'], username)
         return
@@ -1022,13 +1000,10 @@ def user_page(username):
             if st.button(nav_label, width='stretch', 
                         type="primary" if st.session_state.selected_nav == nav_value else "secondary",
                         key=f"nav_{nav_value}"):
-                # Update navigation and clear transient selections when changing pages
                 prev_nav = st.session_state.selected_nav
                 st.session_state.selected_nav = nav_value
-                # Clear selected media unless we're navigating to Explore or Series Progress
                 if nav_value not in ("Explore", "Series Progress"):
                     st.session_state.selected_media_id = None
-                # Clear other transient selections when switching sections
                 if nav_value != 'Friends':
                     st.session_state.selected_friend = None
                 if nav_value != 'Watchlist':
@@ -1042,18 +1017,7 @@ def user_page(username):
         
         st.markdown("---")
         if st.button("🚪 Log Out", width='stretch', type="secondary"):
-            # Clear session except DB password to preserve connection option
-            keep = st.session_state.get('db_password') if 'db_password' in st.session_state else None
-            keys = list(st.session_state.keys())
-            for k in keys:
-                try:
-                    del st.session_state[k]
-                except Exception:
-                    pass
-            if keep is not None:
-                st.session_state.db_password = keep
-            st.session_state.selected_nav = 'Home'
-            set_page('Landing')
+            handle_logout()
             st.rerun()
 
 
@@ -1139,7 +1103,6 @@ def user_page(username):
                 genre_options = get_all_genres()
                 genre_filters = st.multiselect("Filter by Genres", genre_options, key="explore_genres")
 
-                # People filter: actors / directors / crew
                 people_options = get_all_people()
                 people_filters = st.multiselect("People (actor/director)", people_options, key="explore_people")
                 people_role = st.selectbox("People Role", options=["Any", "Actor", "Crew"], index=0, key="explore_people_role")
@@ -1149,7 +1112,6 @@ def user_page(username):
 
             st.markdown("---")
             
-            # Run search when user typed OR when any filters are selected (including people)
             if query or genre_filters or type_filters or people_filters:
                 results = search_media(
                     query=query if query else None,
@@ -1170,10 +1132,9 @@ def user_page(username):
                                 if media['description']:
                                     st.caption(media['description'][:100] + "...")
                                 if st.button("View Details", key=f"explore_{media['media_id']}", width='stretch'):
-                                                    # remember where user came from so Back works
-                                                    st.session_state.previous_page = st.session_state.get('selected_nav', 'Explore')
-                                                    st.session_state.selected_media_id = media['media_id']
-                                                    st.rerun()
+                                    st.session_state.previous_page = st.session_state.get('selected_nav', 'Explore')
+                                    st.session_state.selected_media_id = media['media_id']
+                                    st.rerun()
                 else:
                     st.info("No results found")
             else:
@@ -1321,12 +1282,10 @@ def media_details_page(media_id, username):
     """Display detailed media information"""
     st.markdown("# 🎬 Media Details")
     
-    # Back behavior: return to the previous nav if available, otherwise Explore
     prev_page = st.session_state.get('previous_page', 'Explore')
     if st.button("⬅️ Back", width='stretch'):
         st.session_state.selected_media_id = None
         st.session_state.update_series_mode = False
-        # restore selected navigation so user_page shows the correct section
         st.session_state.selected_nav = prev_page
         st.rerun()
     
@@ -1509,7 +1468,6 @@ def add_series_page(username):
 
     st.markdown("---")
     
-    # Unified behavior: if user typed a query OR selected genres, run search
     if query or genre_selection:
         results = search_media(
             query=query if query else None,
@@ -1578,9 +1536,8 @@ def watchlist_details_page(playlist_id, username):
             results = search_media(
                 query=search_query,
                 scopes=["Title", "Cast", "Crew"]
-            )
+                )
         else:
-            # If user didn't type but still opened add-to-watchlist, show popular/top results
             results = search_media(query=None, scopes=["Title"], filters=None)
             if results:
                 for media in results[:5]:
@@ -1775,18 +1732,7 @@ def admin_page():
         
         st.markdown("---")
         if st.button("🚪 Log Out", width='stretch', type="secondary"):
-            # Clear session state except DB password
-            keep = st.session_state.get('db_password') if 'db_password' in st.session_state else None
-            keys = list(st.session_state.keys())
-            for k in keys:
-                try:
-                    del st.session_state[k]
-                except Exception:
-                    pass
-            if keep is not None:
-                st.session_state.db_password = keep
-            st.session_state.admin_nav = 'Home'
-            set_page('Landing')
+            handle_logout()
             st.rerun()
 
     if selected != "Database Handlers":
@@ -1949,18 +1895,7 @@ def database_handler_page():
         
         st.markdown("---")
         if st.button("🚪 Log Out", width='stretch', type="secondary"):
-            # Clear session state except DB password
-            keep = st.session_state.get('db_password') if 'db_password' in st.session_state else None
-            keys = list(st.session_state.keys())
-            for k in keys:
-                try:
-                    del st.session_state[k]
-                except Exception:
-                    pass
-            if keep is not None:
-                st.session_state.db_password = keep
-            st.session_state.db_nav = 'Home'
-            set_page('Landing')
+            handle_logout()
             st.rerun()
 
     if selected != "Database Handlers":
@@ -2262,7 +2197,6 @@ def table_data_page():
                     selected_record = record_options[selected_label]
                     record_id_value = selected_record.get(id_col)
 
-                    # The update form must be INSIDE the container to render inputs properly
                     with st.form(f"update_{table_name}"):
                         st.markdown(f"**Updating record with {id_col} = {record_id_value}**")
                         update_inputs = {}

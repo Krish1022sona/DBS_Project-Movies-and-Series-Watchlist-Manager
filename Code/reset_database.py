@@ -1,6 +1,6 @@
 import mysql.connector
 from mysql.connector import Error
-from datetime import datetime, date
+from datetime import date
 import random
 
 def load_secrets():
