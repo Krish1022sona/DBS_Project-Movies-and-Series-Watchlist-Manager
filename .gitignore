@@ -13,8 +13,8 @@ venv/
 
 # ===== Streamlit =====
 # Streamlit local configs and secrets
-.streamlit/secrets.toml
-.streamlit/config.toml
+secrets.toml
+config.toml
 
 # ===== VS Code =====
 .vscode/
